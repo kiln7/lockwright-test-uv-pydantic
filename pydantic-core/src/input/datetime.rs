@@ -4,7 +4,6 @@ use pyo3::prelude::*;
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyValueError;
 use pyo3::pyclass::CompareOp;
-use pyo3::sync::PyOnceLock;
 use pyo3::types::PyDateAccess;
 use pyo3::types::PyTimeAccess;
 use pyo3::types::PyTuple;
@@ -402,7 +401,10 @@ impl EitherTime<'_> {
 
 fn time_as_tzinfo<'py>(py: Python<'py>, time: &Time) -> PyResult<Option<Bound<'py, PyTzInfo>>> {
     match time.tz_offset {
-        Some(offset) => Ok(Some(TzInfo::new(py, offset)?.into_bound(py).into_any().cast_into()?)),
+        Some(offset) => {
+            let tz_info: TzInfo = offset.try_into()?;
+            Ok(Some(Bound::new(py, tz_info)?.into_any().cast_into()?))
+        }
         None => Ok(None),
     }
 }
@@ -707,10 +709,8 @@ pub fn bytes_as_timedelta<'py>(
 pub fn int_as_duration(input: impl ToErrorValue, total_seconds: i64) -> ValResult<Duration> {
     let positive = total_seconds >= 0;
     let total_seconds = total_seconds.unsigned_abs();
-    // The number of days can exceed `u32::MAX` (and casting would silently wrap it):
-    let Ok(days) = u32::try_from(total_seconds / 86400) else {
-        return Err(map_timedelta_err(input, ParseError::DurationDaysTooLarge));
-    };
+    // we can safely unwrap here since we've guaranteed seconds and microseconds can't cause overflow
+    let days = (total_seconds / 86400) as u32;
     let seconds = (total_seconds % 86400) as u32;
     Duration::new(positive, days, seconds, 0).map_err(|err| map_timedelta_err(input, err))
 }
@@ -726,33 +726,19 @@ pub fn float_as_duration(input: impl ToErrorValue, total_seconds: f64) -> ValRes
         .map_err(|err| map_timedelta_err(input, err))
 }
 
-#[pyclass(module = "pydantic_core._pydantic_core", extends = PyTzInfo, frozen)]
+#[pyclass(module = "pydantic_core._pydantic_core", extends = PyTzInfo, frozen, skip_from_py_object)]
+#[derive(Clone)]
 #[cfg_attr(debug_assertions, derive(Debug))]
 pub struct TzInfo {
     seconds: i32,
-}
-
-static UTC_TZINFO: PyOnceLock<Py<TzInfo>> = PyOnceLock::new();
-
-impl TzInfo {
-    /// Create a `TzInfo` for the given offset in seconds.
-    pub fn new(py: Python<'_>, seconds: i32) -> PyResult<Py<Self>> {
-        if seconds == 0 {
-            Ok(UTC_TZINFO
-                .get_or_try_init(py, || Py::new(py, Self { seconds: 0 }))?
-                .clone_ref(py))
-        } else {
-            Py::new(py, Self::try_from(seconds)?)
-        }
-    }
 }
 
 #[pymethods]
 impl TzInfo {
     #[new]
     #[pyo3(signature = (seconds = 0.0))]
-    fn py_new(py: Python<'_>, seconds: f32) -> PyResult<Py<Self>> {
-        Self::new(py, seconds.trunc() as i32)
+    fn py_new(seconds: f32) -> PyResult<Self> {
+        Self::try_from(seconds.trunc() as i32)
     }
 
     #[allow(unused_variables)]
@@ -821,7 +807,7 @@ impl TzInfo {
     }
 
     fn __deepcopy__(&self, py: Python, _memo: &Bound<'_, PyDict>) -> PyResult<Py<Self>> {
-        Self::new(py, self.seconds)
+        Py::new(py, self.clone())
     }
 
     pub fn __reduce__<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyTuple>> {

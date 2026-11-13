@@ -28,7 +28,7 @@ pip install \
     --platform manylinux2014_x86_64 \  # (1)!
     --target=<your_package_dir> \  # (2)!
     --implementation cp \  # (3)!
-    --python-version 3.11 \  # (4)!
+    --python-version 3.10 \  # (4)!
     --only-binary=:all: \  # (5)!
     --upgrade pydantic  # (6)!
 ```
@@ -114,9 +114,3 @@ If you're still struggling with installing `pydantic` for your AWS Lambda, you m
 ### Validating `event` and `context` data
 
 Check out our [blog post](https://pydantic.dev/articles/lambda-intro) to learn more about how to use `pydantic` to validate `event` and `context` data in AWS Lambda functions.
-
-Validation failures are particularly awkward to debug in Lambda: you can't attach a debugger, and the
-event that caused the failure disappears with the invocation. If you record validations with
-[Logfire](../integrations/logfire.md), each failed validation is stored with its structured errors and
-rejected values, and its [AWS Lambda integration](https://pydantic.dev/docs/logfire/integrations/aws-lambda/)
-captures the surrounding invocation.

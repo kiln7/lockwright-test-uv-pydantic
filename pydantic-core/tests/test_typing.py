@@ -4,8 +4,6 @@ from collections.abc import Callable
 from datetime import date, datetime, time
 from typing import Any
 
-import pytest
-
 from pydantic_core import (
     CoreSchema,
     ErrorDetails,
@@ -23,6 +21,9 @@ class Foo:
 
 
 def foo(bar: str) -> None: ...
+
+
+def validator_deprecated(value: Any, info: core_schema.FieldValidationInfo) -> None: ...
 
 
 def validator(value: Any, info: core_schema.ValidationInfo) -> None: ...
@@ -176,8 +177,13 @@ def test_schema_validator() -> None:
 
 
 def test_schema_validator_wrong() -> None:
-    with pytest.raises(SchemaError):
+    # use this instead of pytest.raises since pyright complains about input when pytest isn't installed
+    try:
         SchemaValidator({'type': 'bad'})  # type: ignore
+    except SchemaError:
+        pass
+    else:
+        raise AssertionError('SchemaValidator did not raise SchemaError')
 
 
 def test_correct_function_signature() -> None:
@@ -194,13 +200,22 @@ def test_wrong_function_signature() -> None:
 
     v = SchemaValidator(core_schema.with_info_plain_validator_function(wrong_validator))  # type: ignore
 
-    with pytest.raises(TypeError, match='takes 1 positional argument but 2 were given'):
+    # use this instead of pytest.raises since pyright complains about input when pytest isn't installed
+    try:
         v.validate_python(1)
+    except TypeError as exc:
+        assert 'takes 1 positional argument but 2 were given' in str(exc)
+    else:
+        raise AssertionError('v.validate_python(1) did not raise TypeError')
 
 
 def test_type_error():
-    with pytest.raises(KeyError, match="Invalid error type: 'foobar'"):
+    try:
         PydanticKnownError('foobar')  # type: ignore
+    except KeyError as exc:
+        assert str(exc) == '"Invalid error type: \'foobar\'"'
+    else:
+        raise AssertionError("PydanticKnownError('foobar') did not raise KeyError")
 
     e = PydanticKnownError('recursion_loop')
     assert isinstance(e, PydanticKnownError)
@@ -244,11 +259,6 @@ def test_ser_function_wrap():
     )
 
 
-def test_ser_core_schema():
-    s = SchemaSerializer(core_schema.any_schema(serialization=core_schema.list_schema(core_schema.int_schema())))
-    assert s.to_python([1, 2]) == [1, 2]
-
-
 def test_error_details() -> None:
     # Test that the ErrorDetails type is correctly exported.
     def act_on_error_details(_: ErrorDetails) -> None:
@@ -256,8 +266,8 @@ def test_error_details() -> None:
 
     v = SchemaValidator({'type': 'int'})
 
-    with pytest.raises(ValidationError) as exc_info:
+    try:
         v.validate_python('not an int')
-
-    for details in exc_info.value.errors(include_url=False):
-        act_on_error_details(details)
+    except ValidationError as err:
+        for details in err.errors(include_url=False):
+            act_on_error_details(details)

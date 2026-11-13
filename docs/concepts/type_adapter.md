@@ -46,7 +46,9 @@ print(repr(user_list_adapter.dump_json(user_list)))
 
 !!! info "`dump_json` returns `bytes`"
     `TypeAdapter`'s `dump_json` methods returns a `bytes` object, unlike the corresponding method for `BaseModel`, `model_dump_json`, which returns a `str`.
-    `bytes` are often the desired end type, and can easily be decoded to a `str` if desired.
+    The reason for this discrepancy is that in V1, model dumping returned a str type, so this behavior is retained in V2 for backwards compatibility.
+    For the `BaseModel` case, `bytes` are coerced to `str` types, but `bytes` are often the desired end type.
+    Hence, for the new `TypeAdapter` class in V2, the return type is simply `bytes`, which can easily be coerced to a `str` type if desired.
 
 !!! note
     Despite some overlap in use cases with [`RootModel`][pydantic.root_model.RootModel],
@@ -83,11 +85,6 @@ print(items)
 
 [`TypeAdapter`][pydantic.type_adapter.TypeAdapter] is capable of parsing data into any of the types Pydantic can
 handle as fields of a [`BaseModel`][pydantic.main.BaseModel].
-
-Data parsed this way often comes from a source you don't control, like the API call in the example
-above, so validation can fail long after the code has shipped. A `TypeAdapter` raises the same
-structured errors as a model, so tooling that records validation failures in production, such as
-[Logfire](../integrations/logfire.md), captures these too.
 
 !!! info "Performance considerations"
     When creating an instance of [`TypeAdapter`][pydantic.type_adapter.TypeAdapter], the provided type must be analyzed and converted into a pydantic-core

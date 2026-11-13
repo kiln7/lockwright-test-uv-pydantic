@@ -14,64 +14,7 @@ can be configured.
 
 See also the [conversion table](../concepts/conversion_table.md) for a summary of the allowed values for each type.
 
-## Utility types
-
-Pydantic provides a number of utility types/annotations, useful to customize the validation/serialization behavior.
-
-### `OnErrorOmit`
-
-/// version-added | v2.6
-///
-
-By default, when an item of a collection (such as a list, a dictionary or a [`TypedDict`][typing.TypedDict])
-fails validation, a [`ValidationError`][pydantic_core.ValidationError] is raised and the whole collection is
-discarded. The [`OnErrorOmit`][pydantic.types.OnErrorOmit] annotation changes this behavior: any item failing
-validation is silently omitted from the result, and the valid ones are kept.
-
-```python
-from pydantic import OnErrorOmit, TypeAdapter
-
-ta = TypeAdapter(list[OnErrorOmit[int]])
-
-print(ta.validate_python([1, 2, 'a', 3]))
-#> [1, 2, 3]
-```
-
-See the [API documentation][pydantic.types.OnErrorOmit] for more details on where it can be applied.
-
-### `FailFast`
-
-/// version-added | v2.8
-///
-
-By default, when validating a collection, Pydantic validates every item and reports all the errors
-at once. The [`FailFast`][pydantic.types.FailFast] annotation can be applied to a collection type
-(such as a [`list`][], a [`tuple`][], a [`set`][] or a [`dict`][]) to stop as soon as an item fails validation.
-This makes validation faster, with the caveat that you get less information about the errors.
-
-```python
-from typing import Annotated
-
-from pydantic import FailFast, TypeAdapter, ValidationError
-
-ta = TypeAdapter(Annotated[list[int], FailFast()])
-
-try:
-    ta.validate_python([1, 'a', 2, 'b'])
-except ValidationError as exc:
-    print(exc)
-    """
-    1 validation error for list[int]
-    1
-      Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='a', input_type=str]
-    """
-```
-
-### `MISSING` sentinel
-
-::: pydantic_core.MISSING
-    options:
-        show_root_heading: false
+This page will go over defining your own custom types.
 
 ## Custom Types
 
@@ -218,7 +161,7 @@ two reasons:
 By leveraging the new [`type` statement](https://typing.readthedocs.io/en/latest/spec/aliases.html#type-statement)
 (introduced in [PEP 695](https://peps.python.org/pep-0695/)), you can define aliases as follows:
 
-=== "Python 3.11"
+=== "Python 3.10 and above"
 
     ```python
     from typing import Annotated
@@ -308,7 +251,7 @@ By leveraging the new [`type` statement](https://typing.readthedocs.io/en/latest
     Pydantic will *not* understand field-specific metadata inside named aliases. That is, metadata such as
     `alias`, `default`, `deprecated`, *cannot* be used:
 
-    === "Python 3.11"
+    === "Python 3.10 and above"
 
         ```python {test="skip"}
         from typing import Annotated
@@ -347,7 +290,7 @@ By leveraging the new [`type` statement](https://typing.readthedocs.io/en/latest
 !!! note
     As with implicit type aliases, [type variables][typing.TypeVar] can also be used inside the generic alias:
 
-    === "Python 3.11"
+    === "Python 3.10 and above"
 
         ```python
         from typing import Annotated, TypeVar
@@ -383,7 +326,7 @@ Named type aliases should be used whenever you need to define recursive type ali
 
 For instance, here is an example definition of a JSON type:
 
-=== "Python 3.11"
+=== "Python 3.10 and above"
 
     ```python
     from typing_extensions import TypeAliasType
@@ -482,6 +425,7 @@ handler at all.
 #### As a method on a custom type
 
 The following is an example of a type that uses `__get_pydantic_core_schema__` to customize how it gets validated.
+This is equivalent to implementing `__get_validators__` in Pydantic V1.
 
 ```python
 from typing import Any

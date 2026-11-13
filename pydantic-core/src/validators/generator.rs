@@ -126,36 +126,36 @@ impl ValidatorIterator {
         macro_rules! next {
             ($iter:ident) => {
                 match $iter.next(py)? {
-                    Some((next, index)) => {
-                        if let Some(max_length) = max_length
-                            && index >= max_length
-                        {
-                            let val_error = ValError::new_custom_input(
-                                ErrorType::TooLong {
-                                    field_type: "Generator".to_string(),
-                                    max_length,
-                                    actual_length: None,
-                                    context: None,
-                                },
-                                $iter.input_as_error_value(py),
-                            );
-                            return Err(ValidationError::from_val_error(
-                                py,
-                                "ValidatorIterator".into_pyobject(py)?.into(),
-                                InputType::Python,
-                                val_error,
-                                None,
-                                hide_input_in_errors,
-                                validation_error_cause,
-                            ));
-                        }
-                        match validator {
-                            Some(validator) => validator
+                    Some((next, index)) => match validator {
+                        Some(validator) => {
+                            if let Some(max_length) = max_length
+                                && index >= max_length
+                            {
+                                let val_error = ValError::new_custom_input(
+                                    ErrorType::TooLong {
+                                        field_type: "Generator".to_string(),
+                                        max_length,
+                                        actual_length: None,
+                                        context: None,
+                                    },
+                                    $iter.input_as_error_value(py),
+                                );
+                                return Err(ValidationError::from_val_error(
+                                    py,
+                                    "ValidatorIterator".into_pyobject(py)?.into(),
+                                    InputType::Python,
+                                    val_error,
+                                    None,
+                                    hide_input_in_errors,
+                                    validation_error_cause,
+                                ));
+                            }
+                            validator
                                 .validate(py, next.borrow_input(), Some(index.into()))
-                                .map(Some),
-                            None => Ok(Some(next.into_py_any(py)?)),
+                                .map(Some)
                         }
-                    }
+                        None => Ok(Some(next.into_pyobject(py)?.unbind())),
+                    },
                     None => {
                         if let Some(min_length) = min_length
                             && $iter.index() < min_length
@@ -225,8 +225,6 @@ pub struct InternalValidator {
     extra_behavior: Option<ExtraBehavior>,
     from_attributes: Option<bool>,
     context: Option<Py<PyAny>>,
-    by_alias: Option<bool>,
-    by_name: Option<bool>,
     field_name: Option<Py<PyString>>,
     self_instance: Option<Py<PyAny>>,
     recursion_guard: RecursionState,
@@ -261,8 +259,6 @@ impl InternalValidator {
             extra_behavior: extra.extra_behavior,
             from_attributes: extra.from_attributes,
             context: extra.context.map(|d| d.clone().unbind()),
-            by_alias: extra.by_alias,
-            by_name: extra.by_name,
             field_name: state.field_name().map(|d| d.clone().unbind()),
             self_instance: state.self_instance.map(|d| d.clone().unbind()),
             recursion_guard: state.recursion_guard.clone(),
@@ -290,8 +286,8 @@ impl InternalValidator {
             from_attributes: self.from_attributes,
             context: self.context.as_ref().map(|data| data.bind(py)),
             cache_str: self.cache_str,
-            by_alias: self.by_alias,
-            by_name: self.by_name,
+            by_alias: None,
+            by_name: None,
         };
         let mut state = ValidationState::new(
             extra,
@@ -333,8 +329,8 @@ impl InternalValidator {
             from_attributes: self.from_attributes,
             context: self.context.as_ref().map(|data| data.bind(py)),
             cache_str: self.cache_str,
-            by_alias: self.by_alias,
-            by_name: self.by_name,
+            by_alias: None,
+            by_name: None,
         };
         let mut state = ValidationState::new(
             extra,
@@ -363,10 +359,8 @@ impl InternalValidator {
     }
 }
 
-// `validator` is intentionally not traversed: it is an `Arc` clone of a subtree owned (and
-// traversed) by the `SchemaValidator`. Visiting it here as well would report twice for a single reference,
-// which corrupts the GC's refcount logic.
 impl_py_gc_traverse!(InternalValidator {
+    validator,
     data,
     context,
     self_instance

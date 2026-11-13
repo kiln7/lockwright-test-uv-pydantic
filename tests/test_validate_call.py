@@ -4,13 +4,13 @@ import pickle
 import re
 import sys
 from collections import UserDict
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from functools import partial
-from typing import Annotated, Any, Generic, Literal, Required, TypeVar
+from typing import Annotated, Any, Generic, Literal, TypeVar
 
 import pytest
 from pydantic_core import ArgsKwargs
-from typing_extensions import TypedDict, Unpack
+from typing_extensions import Required, TypedDict, Unpack
 
 from pydantic import (
     AfterValidator,
@@ -18,6 +18,7 @@ from pydantic import (
     BaseModel,
     BeforeValidator,
     Field,
+    PydanticInvalidForJsonSchema,
     PydanticUserError,
     Strict,
     TypeAdapter,
@@ -66,7 +67,7 @@ def test_func_type() -> None:
         validate_call([])
 
 
-def test_validate_bare_none() -> None:
+def validate_bare_none() -> None:
     @validate_call
     def func(f: None):
         return f
@@ -647,10 +648,10 @@ def test_json_schema():
 
     assert foo(1, 2) == '1, 2'
     assert TypeAdapter(foo).json_schema() == {
-        'type': 'object',
-        'properties': {'a': {'title': 'A', 'type': 'integer'}, 'b': {'title': 'B', 'type': 'integer'}},
-        'required': ['a', 'b'],
-        'additionalProperties': False,
+        'maxItems': 2,
+        'minItems': 2,
+        'prefixItems': [{'title': 'A', 'type': 'integer'}, {'title': 'B', 'type': 'integer'}],
+        'type': 'array',
     }
 
     @validate_call
@@ -658,27 +659,20 @@ def test_json_schema():
         return f'{a}, {b}, {c}'
 
     assert foo(1, b=2, c=3) == '1, 2, 3'
-    assert TypeAdapter(foo).json_schema() == {
-        'type': 'object',
-        'properties': {
-            'a': {'title': 'A', 'type': 'integer'},
-            'b': {'title': 'B', 'type': 'integer'},
-            'c': {'title': 'C', 'type': 'integer'},
-        },
-        'required': ['a', 'b', 'c'],
-        'additionalProperties': False,
-    }
+    with pytest.raises(
+        PydanticInvalidForJsonSchema,
+        match=(
+            'Unable to generate JSON schema for arguments validator with positional-only and keyword-only arguments'
+        ),
+    ):
+        TypeAdapter(foo).json_schema()
 
     @validate_call
     def foo(*numbers: int) -> int:
         return sum(numbers)
 
     assert foo(1, 2, 3) == 6
-    assert TypeAdapter(foo).json_schema() == {
-        'type': 'object',
-        'properties': {'numbers': {'items': {'type': 'integer'}, 'title': 'Numbers', 'type': 'array'}},
-        'additionalProperties': False,
-    }
+    assert TypeAdapter(foo).json_schema() == {'items': {'type': 'integer'}, 'type': 'array'}
 
     @validate_call
     def foo(a: int, *numbers: int) -> int:
@@ -686,13 +680,10 @@ def test_json_schema():
 
     assert foo(1, 2, 3) == 6
     assert TypeAdapter(foo).json_schema() == {
-        'type': 'object',
-        'properties': {
-            'a': {'title': 'A', 'type': 'integer'},
-            'numbers': {'items': {'type': 'integer'}, 'title': 'Numbers', 'type': 'array'},
-        },
-        'required': ['a'],
-        'additionalProperties': False,
+        'items': {'type': 'integer'},
+        'prefixItems': [{'title': 'A', 'type': 'integer'}],
+        'minItems': 1,
+        'type': 'array',
     }
 
     @validate_call
@@ -701,11 +692,9 @@ def test_json_schema():
 
     assert foo(a=1, b=2) == 'a=1, b=2'
     assert TypeAdapter(foo).json_schema() == {
+        'additionalProperties': {'type': 'integer'},
+        'properties': {},
         'type': 'object',
-        'properties': {
-            'scores': {'additionalProperties': {'type': 'integer'}, 'title': 'Scores', 'type': 'object'},
-        },
-        'additionalProperties': False,
     }
 
     @validate_call
@@ -930,7 +919,7 @@ def test_use_of_alias():
 
 
 def test_validate_by_name():
-    @validate_call(config={'validate_by_name': True})
+    @validate_call(config=dict(validate_by_name=True))
     def foo(a: Annotated[int, Field(alias='b')], c: Annotated[int, Field(alias='d')]):
         return a + c
 
@@ -940,18 +929,8 @@ def test_validate_by_name():
     assert foo(a=10, c=1) == 11
 
 
-def test_populate_by_name() -> None:
-    """https://github.com/pydantic/pydantic/issues/13687"""
-
-    @validate_call(config={'populate_by_name': True})
-    def foo(a: Annotated[int, Field(alias='b')]):
-        return a
-
-    assert foo(a=1) == 1
-
-
 def test_validate_return():
-    @validate_call(config={'validate_return': True})
+    @validate_call(config=dict(validate_return=True))
     def foo(a: int, b: int) -> int:
         return a + b
 
@@ -959,12 +938,12 @@ def test_validate_return():
 
 
 def test_validate_all():
-    @validate_call(config={'validate_default': True})
+    @validate_call(config=dict(validate_default=True))
     def foo(dt: datetime = Field(default_factory=lambda: 946684800)):
         return dt
 
-    assert foo() == datetime(2000, 1, 1, tzinfo=UTC)
-    assert foo(0) == datetime(1970, 1, 1, tzinfo=UTC)
+    assert foo() == datetime(2000, 1, 1, tzinfo=timezone.utc)
+    assert foo(0) == datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 def test_validate_all_positional(create_module):
@@ -980,8 +959,8 @@ def foo(dt: datetime = Field(default_factory=lambda: 946684800), /):
     return dt
 """
     )
-    assert module.foo() == datetime(2000, 1, 1, tzinfo=UTC)
-    assert module.foo(0) == datetime(1970, 1, 1, tzinfo=UTC)
+    assert module.foo() == datetime(2000, 1, 1, tzinfo=timezone.utc)
+    assert module.foo(0) == datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 def test_partial():
@@ -1144,6 +1123,42 @@ def test_validate_call_with_slots() -> None:
     assert c.some_instance_method == c.some_instance_method
     assert c.some_class_method == c.some_class_method
     assert c.some_static_method == c.some_static_method
+
+
+def test_eval_type_backport():
+    @validate_call
+    def foo(bar: 'list[int | str]') -> 'list[int | str]':
+        return bar
+
+    assert foo([1, '2']) == [1, '2']
+    with pytest.raises(ValidationError) as exc_info:
+        foo('not a list')  # type: ignore
+    # insert_assert(exc_info.value.errors(include_url=False))
+    assert exc_info.value.errors(include_url=False) == [
+        {
+            'type': 'list_type',
+            'loc': (0,),
+            'msg': 'Input should be a valid list',
+            'input': 'not a list',
+        }
+    ]
+    with pytest.raises(ValidationError) as exc_info:
+        foo([{'not a str or int'}])  # type: ignore
+    # insert_assert(exc_info.value.errors(include_url=False))
+    assert exc_info.value.errors(include_url=False) == [
+        {
+            'type': 'int_type',
+            'loc': (0, 0, 'int'),
+            'msg': 'Input should be a valid integer',
+            'input': {'not a str or int'},
+        },
+        {
+            'type': 'string_type',
+            'loc': (0, 0, 'str'),
+            'msg': 'Input should be a valid string',
+            'input': {'not a str or int'},
+        },
+    ]
 
 
 def test_eval_namespace_basic(create_module):
@@ -1350,13 +1365,3 @@ def test_pickle_validate_call_with_basemodel() -> None:
 
     assert unpickled == {1: _PickleTestModel(number=1.0)}
     assert unpickled[1].number == 1.0
-
-
-def test_validate_call_self_parameter() -> None:
-    """https://github.com/pydantic/pydantic/issues/13771"""
-
-    @validate_call
-    def func(self: int):
-        return self
-
-    assert func(self=1) == 1

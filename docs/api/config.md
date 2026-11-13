@@ -5,6 +5,7 @@
         - ConfigDict
         - with_config
         - ExtraValues
+        - BaseConfig
 
 ::: pydantic.alias_generators
     options:

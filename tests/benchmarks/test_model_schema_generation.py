@@ -1,17 +1,17 @@
+import sys
 from collections.abc import Mapping, Sequence
 from typing import (
     Annotated,
     Any,
     Generic,
     Literal,
-    Self,
     TypeVar,
     Union,
     get_origin,
 )
 
 import pytest
-from typing_extensions import TypedDict, type_repr
+from typing_extensions import Self, type_repr
 
 from pydantic import (
     AfterValidator,
@@ -22,7 +22,6 @@ from pydantic import (
     PlainSerializer,
     PlainValidator,
     Tag,
-    TypeAdapter,
     WrapSerializer,
     WrapValidator,
     create_model,
@@ -346,52 +345,23 @@ def test_model_subclass(benchmark):
             pass
 
 
-@pytest.mark.benchmark(group='model_schema_generation')
-def test_interconnected_models(benchmark):
-    classes: list[type[BaseModel]] = []
-    for i in range(10):
-        fields: dict[str, Any] = {'value': (int, ...)}
-        for j, prev in enumerate(classes[-3:]):
-            fields[f'ref{j}'] = (prev | None, None)
-        classes.append(create_model(f'Node{i}', __config__={'defer_build': True}, **fields))
+# On Python 3.10, type_repr produces duplicate ids.
+if sys.version_info >= (3, 11):
 
-    benchmark(rebuild_model, classes[-1])
+    @pytest.mark.parametrize('field_type', StdLibTypes, ids=type_repr)
+    @pytest.mark.benchmark(group='stdlib_schema_generation')
+    @pytest.mark.skip('Clutters codspeed CI, but should be enabled on branches where we modify schema building.')
+    def test_stdlib_type_schema_generation(benchmark, field_type):
+        class StdlibTypeModel(DeferredModel):
+            field: field_type
 
+        benchmark(rebuild_model, StdlibTypeModel)
 
-@pytest.mark.parametrize('field_type', StdLibTypes, ids=type_repr)
-@pytest.mark.benchmark(group='stdlib_schema_generation')
-@pytest.mark.skip('Clutters codspeed CI, but should be enabled on branches where we modify schema building.')
-def test_stdlib_type_schema_generation(benchmark, field_type):
-    class StdlibTypeModel(DeferredModel):
-        field: field_type
+    @pytest.mark.parametrize('field_type', PydanticTypes, ids=type_repr)
+    @pytest.mark.benchmark(group='pydantic_custom_types_schema_generation')
+    @pytest.mark.skip('Clutters codspeed CI, but should be enabled on branches where we modify schema building.')
+    def test_pydantic_custom_types_schema_generation(benchmark, field_type):
+        class PydanticTypeModel(DeferredModel):
+            field: field_type
 
-    benchmark(rebuild_model, StdlibTypeModel)
-
-
-@pytest.mark.parametrize('field_type', PydanticTypes, ids=type_repr)
-@pytest.mark.benchmark(group='pydantic_custom_types_schema_generation')
-@pytest.mark.skip('Clutters codspeed CI, but should be enabled on branches where we modify schema building.')
-def test_pydantic_custom_types_schema_generation(benchmark, field_type):
-    class PydanticTypeModel(DeferredModel):
-        field: field_type
-
-    benchmark(rebuild_model, PydanticTypeModel)
-
-
-@pytest.mark.benchmark(group='model_schema_generation')
-def test_typeddict_cross_build_schema_generation(benchmark) -> None:
-    class Leaf(TypedDict):
-        value: str
-        count: int
-
-    class Child1(TypedDict):
-        leaf: Leaf
-
-    class Child2(TypedDict):
-        leaf: Leaf
-
-    def build_children() -> None:
-        TypeAdapter(Child1)
-        TypeAdapter(Child2)
-
-    benchmark(build_children)
+        benchmark(rebuild_model, PydanticTypeModel)

@@ -26,30 +26,28 @@ classifiers = [
     'Programming Language :: Python',
     'Programming Language :: Python :: Implementation :: CPython',
     'Programming Language :: Python :: Implementation :: PyPy',
-    'Programming Language :: Python :: Implementation :: GraalPy',
     'Programming Language :: Python :: 3',
     'Programming Language :: Python :: 3 :: Only',
+    'Programming Language :: Python :: 3.10',
     'Programming Language :: Python :: 3.11',
     'Programming Language :: Python :: 3.12',
     'Programming Language :: Python :: 3.13',
     'Programming Language :: Python :: 3.14',
-    'Programming Language :: Python :: 3.15',
     'Intended Audience :: Developers',
     'Intended Audience :: Information Technology',
     'Operating System :: OS Independent',
-    'Environment :: WebAssembly :: Emscripten',
     'Framework :: Hypothesis',
     'Framework :: Pydantic',
     'Topic :: Software Development :: Libraries :: Python Modules',
     'Topic :: Internet',
 ]
-requires-python = '>=3.11'
+requires-python = '>=3.10'
 dependencies = [
-    'typing-extensions>=4.16.0',
+    'typing-extensions>=4.15.0',
     'annotated-types>=0.6.0',
     # Keep this in sync with the version in the `check_pydantic_core_version()` function:
-    'pydantic-core==2.50.0',
-    'typing-inspection>=0.4.4',
+    'pydantic-core==2.46.0',
+    'typing-inspection>=0.4.2',
 ]
 dynamic = ['version', 'readme']
 
@@ -62,16 +60,17 @@ timezone = [
 
 [project.urls]
 Homepage = 'https://github.com/pydantic/pydantic'
-Documentation = 'https://pydantic.dev/docs/validation/latest/get-started/'
+Documentation = 'https://docs.pydantic.dev'
 Funding = 'https://github.com/sponsors/samuelcolvin'
 Source = 'https://github.com/pydantic/pydantic'
-Changelog = 'https://pydantic.dev/docs/validation/latest/get-started/changelog/'
+Changelog = 'https://docs.pydantic.dev/latest/changelog/'
 
 [dependency-groups]
 dev = [
     'coverage[toml]',
     'pytz',
     'dirty-equals',
+    'eval-type-backport',
     'pytest',
     'pytest-mock',
     'pytest-pretty',
@@ -82,19 +81,16 @@ dev = [
     'pytest-run-parallel>=0.3.1',
     'packaging',
     'jsonschema',
-    'time-machine; platform_python_implementation != "PyPy"',
-]
-coverage = [
-    'coverage[toml]',
 ]
 docs = [
     'autoflake',
     'mkdocs',
     'mkdocs-exclude',
     'mkdocs-llmstxt',
-    'mkdocs-material',
+    'mkdocs-material[imaging]',
     'mkdocs-redirects',
     'mkdocstrings-python',
+    'tomli',
     'pyupgrade',
     'mike',
     'pydantic-settings',
@@ -109,6 +105,7 @@ docs-upload = [
     'beautifulsoup4>=4.13.3',
 ]
 linting = [
+    'eval-type-backport',
     'ruff',
     'pyright',
 ]
@@ -119,8 +116,7 @@ testing-extra = [
     'devtools',
     # used in docs tests
     'sqlalchemy',
-    'pytest-memray; platform_python_implementation == "CPython" and platform_system != "Windows" and python_version < "3.15"',
-    'memray; platform_python_implementation == "CPython" and platform_system != "Windows" and python_version < "3.15"',
+    'pytest-memray; platform_python_implementation == "CPython" and platform_system != "Windows"',
 ]
 typechecking = [
     'mypy',
@@ -129,14 +125,8 @@ typechecking = [
     'pydantic-settings',
 ]
 build = [
-    'build>=1.6',
+    'build',
     'twine',
-]
-pyodide-build = [
-    "pyodide-build",
-]
-tweet = [
-    "tweepy",
 ]
 
 all = [
@@ -146,7 +136,6 @@ all = [
   { include-group = 'testing-extra' },
   { include-group = 'typechecking' },
   { include-group = 'build' },
-  { include-group = 'pyodide-build' },
 ]
 
 [tool.hatch.version]
@@ -173,7 +162,7 @@ fragments = [
     {path = 'README.md'},
     {text = "\n## Changelog\n\n"},
     {path = 'HISTORY.md', pattern = '(.+?)<!-- package description limit -->'},
-    {text = "\n... see [here](https://pydantic.dev/docs/validation/latest/get-started/changelog/#v2100b1-2024-11-06) for earlier changes.\n"},
+    {text = "\n... see [here](https://docs.pydantic.dev/changelog/#v0322-2019-08-17) for earlier changes.\n"},
 ]
 # convert GitHub issue/PR numbers and handles to links
 substitutions = [
@@ -197,13 +186,11 @@ addopts = [
 ]
 markers = [
     'skip_json_schema_validation: Disable JSON Schema validation.',
-    # Necessary as pytest-timeout doesn't work under emscripten:
-    'timeout: pytest-timeout marker (no-op when plugin not installed)',
 ]
 
 [tool.uv]
 default-groups = ['dev']
-required-version = '>=0.13.0'
+required-version = '>=0.8.4'
 
 [tool.uv.sources]
 pydantic-core = { workspace = true }
@@ -222,7 +209,8 @@ unconfirmed_label = 'pending'
 
 [tool.ruff]
 line-length = 120
-extend-exclude = ['tests/mypy', 'tests/pydantic_core', 'tests/benchmarks/corpus']
+target-version = 'py310'
+extend-exclude = ['pydantic/v1', 'tests/mypy', 'tests/pydantic_core']
 
 [tool.ruff.lint]
 select = [
@@ -258,7 +246,9 @@ pydocstyle = { convention = 'google' }
 'tests/test_main.py' = ['PIE807']
 'tests/*' = ['D', 'B', 'C4']
 'pydantic/_internal/_known_annotated_metadata.py' = ['PIE800']
+'pydantic/deprecated/*' = ['D', 'PYI', 'UP007']
 'pydantic/color.py' = ['PYI']
+'pydantic/_internal/_decorators_v1.py' = ['PYI']
 'pydantic/json_schema.py' = ['D']
 "release/*.py" = ["T201"]  # print statements in release scripts
 
@@ -272,6 +262,7 @@ quote-style = 'single'
 
 [tool.coverage.run]
 source = ['pydantic', 'pydantic_core']
+omit = ['pydantic/deprecated/*', 'pydantic/v1/*']
 branch = true
 relative_files = true
 context = '${CONTEXT}'
@@ -294,14 +285,14 @@ source = [
 
 [tool.pyright]
 include = ['pydantic', 'tests/test_pipeline.py']
-exclude = ['pydantic/_hypothesis_plugin.py', 'pydantic/mypy.py']
+exclude = ['pydantic/_hypothesis_plugin.py', 'pydantic/mypy.py', 'pydantic/v1']
 # reportUnnecessaryTypeIgnoreComment can't be set since we run pyright with multiple python versions
 # reportUnnecessaryTypeIgnoreComment = true
 strict = ['tests/test_pipeline.py']
 enableExperimentalFeatures = true
 
 [tool.codespell]
-skip = '.git,env*,uv.lock'
+skip = '.git,env*,pydantic/v1/*,uv.lock'
 # `ser` - abbreviation for "ser"ialisation
 # `crate` - a rust crate
-ignore-words-list = 'gir,ser,crate,deques,nam'
+ignore-words-list = 'gir,ser,crate,deques'

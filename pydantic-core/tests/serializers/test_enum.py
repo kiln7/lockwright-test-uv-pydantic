@@ -1,4 +1,4 @@
-from enum import Enum, StrEnum
+from enum import Enum
 
 import pytest
 
@@ -54,7 +54,7 @@ def test_int_enum():
 
 
 def test_str_enum():
-    class MyEnum(StrEnum):
+    class MyEnum(str, Enum):
         a = 'a'
         b = 'b'
 

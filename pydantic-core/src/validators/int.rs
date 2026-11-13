@@ -1,4 +1,4 @@
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 use num_bigint::BigInt;
 use pyo3::IntoPyObjectExt;
@@ -7,6 +7,7 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString};
 
+use crate::build_tools::LazyLock;
 use crate::build_tools::is_strict;
 use crate::errors::{ErrorType, ValError, ValResult};
 use crate::input::{Input, Int};
@@ -98,22 +99,14 @@ pub struct ConstrainedIntValidator {
 impl ConstrainedIntValidator {
     fn build(schema: &Bound<'_, PyDict>, config: Option<&Bound<'_, PyDict>>) -> PyResult<Arc<CombinedValidator>> {
         let py = schema.py();
-        let multiple_of = validate_as_int(schema, intern!(py, "multiple_of"))?;
-        if let Some(ref m) = multiple_of
-            && m <= &Int::I64(0)
-        {
-            return Err(PyValueError::new_err(
-                "'multiple_of' must be a finite number greater than 0",
-            ));
-        }
-        Ok(CombinedValidator::ConstrainedInt(Box::new(Self {
+        Ok(CombinedValidator::ConstrainedInt(Self {
             strict: is_strict(schema, config)?,
-            multiple_of,
+            multiple_of: validate_as_int(schema, intern!(py, "multiple_of"))?,
             le: validate_as_int(schema, intern!(py, "le"))?,
             lt: validate_as_int(schema, intern!(py, "lt"))?,
             ge: validate_as_int(schema, intern!(py, "ge"))?,
             gt: validate_as_int(schema, intern!(py, "gt"))?,
-        }))
+        })
         .into())
     }
 }

@@ -169,7 +169,8 @@ def test_set_kwargs(kwargs: dict[str, Any], input_value, expected):
     v = SchemaValidator(cs.set_schema(**kwargs))
     if isinstance(expected, Err):
         with pytest.raises(ValidationError, match=re.escape(expected.message)):
-            v.validate_python(input_value)
+            r = v.validate_python(input_value)
+            print(f'unexpected result: {r!r}')
     else:
         assert v.validate_python(input_value) == expected
 

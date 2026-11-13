@@ -19,7 +19,6 @@
         - MultiHostUrl
         - MultiHostHost
         - ArgsKwargs
-        - ModelFieldsSet
         - Some
         - TzInfo
         - to_json

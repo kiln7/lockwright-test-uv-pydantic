@@ -117,7 +117,7 @@ def test_custom_title():
 def test_validation_error_multiple(pydantic_version):
     class MyModel:
         # this is not required, but it avoids `__pydantic_fields_set__` being included in `__dict__`
-        __slots__ = '__dict__', '__pydantic_extra__', '__pydantic_fields_set__', '__pydantic_private__'
+        __slots__ = '__dict__', '__pydantic_fields_set__', '__pydantic_extra__', '__pydantic_private__'
         field_a: str
         field_b: int
 
@@ -232,20 +232,11 @@ def test_unicode_error_input_repr() -> None:
     assert expected == actual
 
 
-def test_internal_error():
-    v = SchemaValidator(
-        core_schema.model_schema(
-            cls=int,
-            schema=core_schema.model_fields_schema(
-                fields={'f': core_schema.model_field(schema=core_schema.int_schema())}
-            ),
-        )
-    )
-    with pytest.raises(AttributeError, match="'int' object has no attribute '__dict__'"):
-        v.validate_python({'f': 123})
+def test_core_schema_import_field_validation_info():
+    with pytest.warns(DeprecationWarning, match='`FieldValidationInfo` is deprecated, use `ValidationInfo` instead.'):
+        core_schema.FieldValidationInfo
 
-    with pytest.raises(AttributeError, match="'int' object has no attribute '__dict__'"):
-        v.validate_json('{"f": 123}')
 
-    with pytest.raises(AttributeError, match="'int' object has no attribute '__dict__'"):
-        v.isinstance_python({'f': 123})
+def test_core_schema_import_missing():
+    with pytest.raises(AttributeError, match="module 'pydantic_core' has no attribute 'foobar'"):
+        core_schema.foobar

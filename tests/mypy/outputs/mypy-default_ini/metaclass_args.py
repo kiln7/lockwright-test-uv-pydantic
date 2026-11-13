@@ -1,14 +1,15 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 
-class ModelConfigUsed(BaseModel):
+class ConfigClassUsed(BaseModel):
     i: int = Field(2, alias='j')
 
-    model_config = ConfigDict(validate_by_name=True)
+    class Config:
+        validate_by_name = True
 
 
-ModelConfigUsed(i=None)
-# MYPY: error: Unexpected keyword argument "i" for "ModelConfigUsed"  [call-arg]
+ConfigClassUsed(i=None)
+# MYPY: error: Unexpected keyword argument "i" for "ConfigClassUsed"  [call-arg]
 
 
 class MetaclassArgumentsNoDefault(BaseModel, validate_by_name=True):

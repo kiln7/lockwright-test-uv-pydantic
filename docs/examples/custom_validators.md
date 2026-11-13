@@ -35,18 +35,16 @@ class MyDatetimeValidator:
 
     def tz_constraint_validator(
         self,
-        value: Any,
+        value: dt.datetime,
         handler: ValidatorFunctionWrapHandler,  # (1)!
     ):
         """Validate tz_constraint and tz_info."""
-        result = handler(value)  # (2)!
-
         # handle naive datetimes
         if self.tz_constraint is None:
             assert (
-                result.tzinfo is None
+                value.tzinfo is None
             ), 'tz_constraint is None, but provided value is tz-aware.'
-            return result
+            return handler(value)
 
         # validate tz_constraint and tz-aware tzinfo
         if self.tz_constraint not in pytz.all_timezones:
@@ -54,6 +52,7 @@ class MyDatetimeValidator:
                 f'Invalid tz_constraint: {self.tz_constraint}',
                 code='unevaluable-type-annotation',
             )
+        result = handler(value)  # (2)!
         assert self.tz_constraint == str(
             result.tzinfo
         ), f'Invalid tzinfo: {str(result.tzinfo)}, expected: {self.tz_constraint}'
@@ -78,10 +77,6 @@ print(
 )
 #> 2023-01-01 00:00:00-07:53
 
-naive_ta = TypeAdapter(Annotated[dt.datetime, MyDatetimeValidator()])
-print(naive_ta.validate_python('2023-01-01T00:00:00'))
-#> 2023-01-01 00:00:00
-
 LONDON = 'Europe/London'
 try:
     ta.validate_python(
@@ -95,7 +90,7 @@ except ValidationError as ve:
     'loc': (),
     'msg': 'Assertion failed, Invalid tzinfo: Europe/London, expected: America/Los_Angeles',
     'type': 'assertion_error',
-    'url': 'https://errors.pydantic.dev/2/v/assertion_error'}]
+    'url': 'https://errors.pydantic.dev/2.8/v/assertion_error'}]
     """
 ```
 
@@ -127,15 +122,15 @@ class MyDatetimeValidator:
     upper_bound: int
 
     def validate_tz_bounds(
-        self, value: Any, handler: ValidatorFunctionWrapHandler
+        self, value: dt.datetime, handler: ValidatorFunctionWrapHandler
     ):
         """Validate and test bounds"""
+        assert value.utcoffset() is not None, 'UTC offset must exist'
         assert self.lower_bound <= self.upper_bound, 'Invalid bounds'
 
         result = handler(value)
-        assert result.utcoffset() is not None, 'UTC offset must exist'
 
-        hours_offset = result.utcoffset().total_seconds() / 3600
+        hours_offset = value.utcoffset().total_seconds() / 3600
         assert (
             self.lower_bound <= hours_offset <= self.upper_bound
         ), 'Value out of bounds'
@@ -160,9 +155,6 @@ print(
 )
 #> 2023-01-01 00:00:00-07:53
 
-print(ta.validate_json('"2023-01-01T00:00:00-08:00"'))
-#> 2023-01-01 00:00:00-08:00
-
 LONDON = 'Europe/London'
 try:
     print(
@@ -178,7 +170,7 @@ except ValidationError as e:
     'loc': (),
     'msg': 'Assertion failed, Value out of bounds',
     'type': 'assertion_error',
-    'url': 'https://errors.pydantic.dev/2/v/assertion_error'}]
+    'url': 'https://errors.pydantic.dev/2.8/v/assertion_error'}]
     """
 ```
 
@@ -234,8 +226,7 @@ except ValidationError as e:
     """
 ```
 
-Alternatively, a custom validator can be used in the nested model class (`User`), with the forbidden passwords data from the parent model being passed in
-via [validation context](../concepts/validators.md#validation-context).
+Alternatively, a custom validator can be used in the nested model class (`User`), with the forbidden passwords data from the parent model being passed in via validation context.
 
 !!! warning
     The ability to mutate the context within a validator adds a lot of power to nested validation, but can also lead to confusing or hard-to-debug code. Use this approach at your own risk!
@@ -293,12 +284,6 @@ except ValidationError as e:
     """
 ```
 
-Note that if the context property is not included in [`model_validate()`][pydantic.main.BaseModel.model_validate], then [`context`][pydantic.ValidationInfo.context] will be `None`
-and the forbidden passwords list will not get added to the context in the above implementation. As such, `validate_user_passwords()` would not carry out the desired password validation.
+Note that if the context property is not included in `model_validate`, then `info.context` will be `None` and the forbidden passwords list will not get added to the context in the above implementation. As such, `validate_user_passwords` would not carry out the desired password validation.
 
 More details about validation context can be found in the [validators documentation](../concepts/validators.md#validation-context).
-
-The messages you write in these `raise ValueError(...)` calls are worth crafting: they're what you'll
-read when the rule eventually rejects real data. They also carry through to tooling that consumes the
-structured errors: [Logfire's explanations of failed validations](../errors/troubleshooting.md), for
-example, include the messages from your custom validators.

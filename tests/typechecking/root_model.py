@@ -1,11 +1,11 @@
-from typing import assert_type
+from typing_extensions import assert_type
 
 from pydantic import RootModel
 
 IntRootModel = RootModel[int]
 
 int_root_model = IntRootModel(1)
-bad_root_model = IntRootModel('1')  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]  # pyrefly: ignore[bad-argument-type]
+bad_root_model = IntRootModel('1')  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]
 
 assert_type(int_root_model.root, int)
 

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 from typing import Literal
 
 import pytest
@@ -78,7 +78,7 @@ def test_bool_literal():
 
 
 def test_literal_with_enum() -> None:
-    class SomeEnum(StrEnum):
+    class SomeEnum(str, Enum):
         CAT = 'cat'
         DOG = 'dog'
 

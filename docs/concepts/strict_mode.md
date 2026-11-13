@@ -43,11 +43,6 @@ except ValidationError as exc:
     """
 ```
 
-One caveat when enabling strict mode on models an existing application relies on: inputs that were
-being quietly coerced will start failing. If you can't audit every caller, it helps to watch validation
-failures while you roll the change out. [Logfire](../integrations/logfire.md) counts successful and
-failed validations as metrics, and can record the rejected values included in structured errors.
-
 Strict mode can be enabled in various ways:
 
 * [As a validation parameter](#as-a-validation-parameter), such as when using [`model_validate()`][pydantic.BaseModel.model_validate],
@@ -61,7 +56,7 @@ Strict mode can be enabled in various ways:
 
 ## As a validation parameter
 
-Strict mode can be enabled on a per-validation-call basis, when using the [validation methods](./models.md#validating-data)
+Strict mode can be enaled on a per-validation-call basis, when using the [validation methods](./models.md#validating-data)
 on [Pydantic models](./models.md) and [type adapters](./type_adapter.md).
 
 ```python
@@ -95,8 +90,8 @@ TypeAdapter(date).validate_json('"2000-01-01"', strict=True)  # (1)!
 ## At the field level
 
 Strict mode can be enabled on specific fields, by setting the `strict` parameter of the
-[`Field()`][pydantic.Field] function to `True`. The [validation parameter](#as-a-validation-parameter)
-takes priority over the field level setting.
+[`Field()`][pydantic.Field] function to `True`. Strict mode will be applied for such fields,
+even when the [validation methods](./models.md#validating-data) are called in lax mode.
 
 ```python
 from pydantic import BaseModel, Field, ValidationError
@@ -121,9 +116,6 @@ except ValidationError as e:
     age
       Input should be a valid integer [type=int_type, input_value='42', input_type=str]
     """
-
-print(User.model_validate({'name': 'John', 'age': '42'}, strict=False))
-#> name='John' age=42
 ```
 
 1. The strict constraint can also be applied using the [annotated pattern](./fields.md#the-annotated-pattern):

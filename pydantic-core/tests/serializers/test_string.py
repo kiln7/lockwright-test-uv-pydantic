@@ -161,7 +161,7 @@ class StrMixin(str, BasicClass):
     pass
 
 
-class StrEnum(str, Enum):  # noqa: UP042 (`str()` differs from the value, which must not be used)
+class StrEnum(str, Enum):
     foo = 'foo-value'
     bar = 'bar-value'
 

@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable, Generator, Iterator, Mapping
+from contextlib import contextmanager
 from functools import cached_property
-from types import MappingProxyType
-from typing import Any, NamedTuple, ParamSpec, TypeAlias, TypeVar, TypeVarTuple
+from typing import Any, NamedTuple, TypeAlias, TypeVar
 
-from typing_extensions import TypeAliasType
-
-from ._contextlib import contextmanager
+from typing_extensions import ParamSpec, TypeAliasType, TypeVarTuple
 
 GlobalsNamespace: TypeAlias = 'dict[str, Any]'
 """A global namespace.
@@ -90,12 +88,7 @@ class LazyLocalNamespace(Mapping[str, Any]):
 
     @cached_property
     def data(self) -> dict[str, Any]:
-        # In rare scenarios, a race condition can happen when iterating over class namespaces (i.e. created with `var(SomeClass)`),
-        # if another thread accesses the type annotations for the first time (since 3.14, reading annotations can set attributes
-        # such as `__annotations_cache__` or `__annotate_func__` to the type).
-        return {
-            k: v for ns in self._namespaces for k, v in (ns.copy() if isinstance(ns, MappingProxyType) else ns).items()
-        }
+        return {k: v for ns in self._namespaces for k, v in ns.items()}
 
     def __len__(self) -> int:
         return len(self.data)

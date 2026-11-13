@@ -15,7 +15,7 @@ from pydantic import BaseModel, PositiveFloat, ValidationError
 from pydantic._internal._model_construction import _PydanticWeakRef
 from pydantic.config import ConfigDict
 
-IS_PYPY = sys.implementation.name == 'pypy'
+IS_PYPY = sys.implementation.name == 'pypy' and sys.version_info >= (3, 11)
 
 if TYPE_CHECKING:
     import cloudpickle
@@ -113,10 +113,10 @@ def model_factory() -> type:
         # Importable model can be pickled with either pickle or cloudpickle.
         (ImportableModel, False),
         (ImportableModel, True),
-        # Locally-defined model can only be pickled with cloudpickle.
-        # Note: this xfail marker was used when cloudpickle was partially compatible with PyPy. Since PyPy 7.3.22, it isn't compatible
-        # at all (importing it fails), so all tests are skipped as per the module's `pytestmark`. We keep the xfail marker if this ever
-        # changes:
+        # Locally-defined model can only be pickle
+        # # Note: this xfail marker was used when cloudpickle was partially compatible with PyPy. Since PyPy 7.3.22, it is completelyisn't compatible
+        # # at all (importing it fails), so all tests are skipped as per the module's `pytestmark`. We keep the xfail marker if this ever
+        # # changes:d with cloudpickle.
         pytest.param(model_factory(), True, marks=cloudpickle_pypy_xfail),
     ],
 )

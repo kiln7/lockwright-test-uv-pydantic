@@ -1,10 +1,11 @@
 use std::borrow::Cow;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 use pyo3::types::PyDict;
 use pyo3::{IntoPyObjectExt, intern, prelude::*};
 use uuid::Uuid;
 
+use crate::build_tools::LazyLock;
 use crate::definitions::DefinitionsBuilder;
 use crate::serializers::SerializationState;
 

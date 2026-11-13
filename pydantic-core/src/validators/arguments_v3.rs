@@ -65,11 +65,6 @@ impl Parameter {
             ParameterMode::VarArgs | ParameterMode::VarKwargsUniform | ParameterMode::VarKwargsUnpackedTypedDict
         )
     }
-
-    /// The parameter name, exposed to validators as `ValidationInfo.field_name`.
-    fn field_name<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyString>> {
-        Some(self.name.as_py_str().bind(py).clone())
-    }
 }
 
 #[derive(Debug)]
@@ -181,13 +176,7 @@ impl BuildValidator for ArgumentsV3Validator {
                 _ => false,
             };
 
-            // Variadic parameters can't have a default, but are never required:
-            let is_variadic = matches!(
-                mode,
-                ParameterMode::VarArgs | ParameterMode::VarKwargsUniform | ParameterMode::VarKwargsUnpackedTypedDict
-            );
-
-            if had_default_arg && !has_default && !had_keyword_only && !is_variadic {
+            if had_default_arg && !has_default && !had_keyword_only {
                 return py_schema_err!("Required parameter '{name}' follows parameter with default");
             } else if has_default {
                 had_default_arg = true;
@@ -238,15 +227,6 @@ impl ArgumentsV3Validator {
     ///
     /// valid_mapping = {'a': 1, 'b': 'test', 'kwargs': {'c': 1, 'd': 2}}
     /// ```
-    /// Whether `key` is the name of a parameter that can be passed by keyword. When validating from
-    /// a mapping, such keys can't be provided in the variadic keyword arguments, as the function
-    /// would receive them twice.
-    fn is_keyword_parameter_name(&self, key: &str) -> bool {
-        self.parameters.iter().any(|p| {
-            matches!(p.mode, ParameterMode::PositionalOrKeyword | ParameterMode::KeywordOnly) && &*p.name == key
-        })
-    }
-
     fn validate_from_mapping<'py>(
         &self,
         py: Python<'py>,
@@ -272,8 +252,6 @@ impl ArgumentsV3Validator {
             };
 
         for parameter in &self.parameters {
-            let state = &mut state.scoped_set_field_name(parameter.field_name(py));
-
             // A value is present in the mapping:
             if let Some((lookup_path, dict_value)) = parameter
                 .lookup_path_collection
@@ -352,8 +330,8 @@ impl ArgumentsV3Validator {
                         Some(value) => {
                             for (dict_key, dict_value) in value {
                                 // Validate keys are strings:
-                                let key = match dict_key.validate_str(true, false).map(ValidationMatch::into_inner) {
-                                    Ok(key) => key,
+                                match dict_key.validate_str(true, false).map(ValidationMatch::into_inner) {
+                                    Ok(_) => (),
                                     Err(ValError::LineErrors(line_errors)) => {
                                         for err in line_errors {
                                             errors.push(
@@ -365,18 +343,6 @@ impl ArgumentsV3Validator {
                                         continue;
                                     }
                                     Err(err) => return Err(err),
-                                };
-                                if self.is_keyword_parameter_name(key.as_cow()?.as_ref()) {
-                                    let val_error = ValLineError::new(
-                                        ErrorTypeDefaults::MultipleArgumentValues,
-                                        dict_value.borrow_input(),
-                                    );
-                                    errors.push(lookup_path.apply_error_loc(
-                                        val_error.with_outer_location(dict_key.clone()),
-                                        self.loc_by_alias,
-                                        &parameter.name,
-                                    ));
-                                    continue;
                                 }
                                 // Validate values:
                                 match parameter.validator.validate(py, dict_value.borrow_input(), state) {
@@ -402,23 +368,7 @@ impl ArgumentsV3Validator {
                     ParameterMode::VarKwargsUnpackedTypedDict => {
                         match parameter.validator.validate(py, dict_value.borrow_input(), state) {
                             Ok(value) => {
-                                // Typed dictionary fields can't overlap with parameters, but extra
-                                // items can (e.g. with `extra='allow'`):
-                                for (key, value) in value.cast_bound::<PyDict>(py).unwrap() {
-                                    if let Ok(key_str) = key.cast::<PyString>()
-                                        && self.is_keyword_parameter_name(&key_str.to_cow()?)
-                                    {
-                                        let val_error =
-                                            ValLineError::new(ErrorTypeDefaults::MultipleArgumentValues, &value);
-                                        errors.push(lookup_path.apply_error_loc(
-                                            val_error.with_outer_location(key_str.to_string()),
-                                            self.loc_by_alias,
-                                            &parameter.name,
-                                        ));
-                                    } else {
-                                        output_kwargs.set_item(key, value)?;
-                                    }
-                                }
+                                output_kwargs.update(value.cast_bound::<PyDict>(py).unwrap().as_mapping())?;
                             }
                             Err(ValError::LineErrors(line_errors)) => {
                                 errors.extend(
@@ -439,7 +389,7 @@ impl ArgumentsV3Validator {
                         if let Some(value) =
                             parameter
                                 .validator
-                                .default_value(py, Some(parameter.name.as_str()), state)?
+                                .default_value(py, Some(parameter.name.clone()), state)?
                         {
                             if matches!(
                                 parameter.mode,
@@ -601,8 +551,6 @@ impl ArgumentsV3Validator {
                 kw_value = Some((lookup_path, value));
             }
 
-            let state = &mut state.scoped_set_field_name(parameter.field_name(py));
-
             match (pos_value, kw_value) {
                 (Some(_), Some((_, kw_value))) => {
                     errors.push(ValLineError::new_with_loc(
@@ -636,7 +584,7 @@ impl ArgumentsV3Validator {
                 (None, None) => {
                     if let Some(value) = parameter
                         .validator
-                        .default_value(py, Some(parameter.name.as_str()), state)?
+                        .default_value(py, Some(parameter.name.clone()), state)?
                     {
                         if parameter.mode == ParameterMode::PositionalOnly {
                             output_args.push(value);
@@ -669,7 +617,6 @@ impl ArgumentsV3Validator {
             && args.len() > self.positional_params_count
         {
             if let Some(var_args_param) = self.parameters.iter().find(|p| p.mode == ParameterMode::VarArgs) {
-                let state = &mut state.scoped_set_field_name(var_args_param.field_name(py));
                 for (index, item) in args.iter().enumerate().skip(self.positional_params_count) {
                     match var_args_param.validator.validate(py, item.borrow_input(), state) {
                         Ok(value) => output_args.push(value),
@@ -736,7 +683,6 @@ impl ArgumentsV3Validator {
                         Some(var_kwargs_parameter) => {
                             match var_kwargs_parameter.mode {
                                 ParameterMode::VarKwargsUniform => {
-                                    let state = &mut state.scoped_set_field_name(var_kwargs_parameter.field_name(py));
                                     match var_kwargs_parameter.validator.validate(py, value.borrow_input(), state) {
                                         Ok(value) => {
                                             output_kwargs
@@ -771,7 +717,6 @@ impl ArgumentsV3Validator {
             .find(|p| p.mode == ParameterMode::VarKwargsUnpackedTypedDict);
 
         if let Some(var_kwargs_parameter) = maybe_var_kwargs_parameter {
-            let state = &mut state.scoped_set_field_name(var_kwargs_parameter.field_name(py));
             match var_kwargs_parameter
                 .validator
                 .validate(py, remaining_kwargs.as_any(), state)

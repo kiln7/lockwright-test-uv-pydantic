@@ -1,10 +1,9 @@
 use std::fmt;
 use std::fmt::Write;
 
-use pyo3::exceptions::{PyBaseException, PyValueError};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyString, PyTuple};
-use pyo3::{PyTraverseError, PyVisit, intern};
+use pyo3::types::PyString;
 
 use crate::tools::truncate_safe_repr;
 
@@ -32,7 +31,7 @@ impl<T: ser::Error> From<PyErr> for WrappedSerError<T> {
     }
 }
 
-#[pyclass(extends=PyValueError, module="pydantic_core._pydantic_core")]
+#[pyclass(extends=PyValueError, module="pydantic_core._pydantic_core", skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PythonSerializerError {
     pub message: String,
@@ -74,7 +73,7 @@ pub(super) fn se_err_py_err(error: PythonSerializerError) -> PyErr {
     }
 }
 
-#[pyclass(extends=PyValueError, module="pydantic_core._pydantic_core", frozen)]
+#[pyclass(extends=PyValueError, module="pydantic_core._pydantic_core", skip_from_py_object, frozen)]
 #[derive(Debug, Clone)]
 pub struct PydanticSerializationError {
     message: String,
@@ -109,18 +108,10 @@ impl PydanticSerializationError {
     }
 }
 
-#[derive(Debug, Clone)]
-enum UnexpectedValueMessage {
-    Text(String),
-    /// Errors encountered during (nested) union serialization, only formatted when the message is
-    /// needed, as formatting them can be expensive.
-    UnionErrors(Vec<Py<PyBaseException>>),
-}
-
-#[pyclass(extends=PyValueError, module="pydantic_core._pydantic_core", frozen)]
+#[pyclass(extends=PyValueError, module="pydantic_core._pydantic_core", skip_from_py_object, frozen)]
 #[derive(Debug, Clone)]
 pub struct PydanticSerializationUnexpectedValue {
-    message: Option<UnexpectedValueMessage>,
+    message: Option<String>,
     field_name: Option<Py<PyString>>,
     field_type: Option<String>,
     input_value: Option<Py<PyAny>>,
@@ -129,26 +120,10 @@ pub struct PydanticSerializationUnexpectedValue {
 impl PydanticSerializationUnexpectedValue {
     pub fn new_from_msg(message: Option<String>) -> Self {
         Self {
-            message: message.map(UnexpectedValueMessage::Text),
+            message,
             field_name: None,
             field_type: None,
             input_value: None,
-        }
-    }
-
-    /// Create an error from the errors encountered during union serialization.
-    #[cold]
-    pub fn new_from_union_errors(py: Python<'_>, errors: &[PyErr]) -> PyErr {
-        let union_errors = errors.iter().map(|err| err.value(py).clone().unbind()).collect();
-        let this = Self {
-            message: Some(UnexpectedValueMessage::UnionErrors(union_errors)),
-            field_name: None,
-            field_type: None,
-            input_value: None,
-        };
-        match Bound::new(py, this) {
-            Ok(err) => PyErr::from_value(err.into_any()),
-            Err(err) => err,
         }
     }
 
@@ -172,30 +147,16 @@ impl PydanticSerializationUnexpectedValue {
         input_value: Option<Py<PyAny>>,
     ) -> Self {
         Self {
-            message: message.map(UnexpectedValueMessage::Text),
+            message,
             field_name,
             field_type,
             input_value,
         }
     }
 
-    /// The message of the error, formatting the union errors if any.
-    fn message(&self, py: Python<'_>) -> Option<String> {
-        match self.message.as_ref()? {
-            UnexpectedValueMessage::Text(message) => Some(message.clone()),
-            UnexpectedValueMessage::UnionErrors(errors) => Some(
-                errors
-                    .iter()
-                    .map(|err| PyErr::from_value(err.bind(py).clone().into_any()).to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-            ),
-        }
-    }
-
     pub fn to_py_err(&self) -> PyErr {
         PyErr::new::<Self, _>((
-            Python::attach(|py| self.message(py)),
+            self.message.clone(),
             self.field_name.clone(),
             self.field_type.clone(),
             self.input_value.clone(),
@@ -214,7 +175,7 @@ impl PydanticSerializationUnexpectedValue {
         input_value: Option<Py<PyAny>>,
     ) -> Self {
         Self {
-            message: message.map(UnexpectedValueMessage::Text),
+            message,
             field_name,
             field_type,
             input_value,
@@ -222,7 +183,7 @@ impl PydanticSerializationUnexpectedValue {
     }
 
     pub(crate) fn __str__(&self, py: Python) -> String {
-        let mut message = self.message(py).unwrap_or_default();
+        let mut message = self.message.as_deref().unwrap_or("").to_string();
 
         if let Some(field_type) = &self.field_type {
             if !message.is_empty() {
@@ -265,40 +226,5 @@ impl PydanticSerializationUnexpectedValue {
 
     pub(crate) fn __repr__(&self, py: Python) -> String {
         format!("PydanticSerializationUnexpectedValue({})", self.__str__(py))
-    }
-
-    // Instances created from Rust don't go through `BaseException.__init__()` and have empty `args`,
-    // so `BaseException.__reduce__()` can't be relied on:
-    fn __reduce__<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyTuple>> {
-        let py = slf.py();
-        let args = slf.getattr(intern!(py, "args"))?.cast_into::<PyTuple>()?;
-        // Only use the stored values if `args` is empty, as `args` reflects the arguments
-        // passed to (potentially overridden) `__new__()` implementations of subclasses:
-        let args = if args.is_empty() {
-            let this = slf.get();
-            (this.message(py), &this.field_name, &this.field_type, &this.input_value).into_pyobject(py)?
-        } else {
-            args
-        };
-        match slf.getattr_opt(intern!(py, "__dict__"))? {
-            // e.g. attributes set on subclass instances, or exception notes:
-            Some(dict) if dict.is_truthy()? => (slf.get_type(), args, dict).into_pyobject(py),
-            _ => (slf.get_type(), args).into_pyobject(py),
-        }
-    }
-
-    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        if let Some(field_name) = &self.field_name {
-            visit.call(field_name)?;
-        }
-        if let Some(input_value) = &self.input_value {
-            visit.call(input_value)?;
-        }
-        if let Some(UnexpectedValueMessage::UnionErrors(errors)) = &self.message {
-            for err in errors {
-                visit.call(err)?;
-            }
-        }
-        Ok(())
     }
 }

@@ -198,7 +198,7 @@ def test_multiple_intertwined():
 def test_model_class():
     class Branch:
         # this is not required, but it avoids `__pydantic_fields_set__` being included in `__dict__`
-        __slots__ = '__dict__', '__pydantic_extra__', '__pydantic_fields_set__', '__pydantic_private__'
+        __slots__ = '__dict__', '__pydantic_fields_set__', '__pydantic_extra__', '__pydantic_private__'
         # these are here just as decoration
         width: int
         branch: Optional['Branch']
@@ -389,7 +389,7 @@ def test_definition_list():
     assert v.validate_python([]) == []
     assert v.validate_python([[]]) == [[]]
 
-    data = []
+    data = list()
     data.append(data)
     with pytest.raises(ValidationError) as exc_info:
         assert v.validate_python(data)
@@ -712,9 +712,9 @@ def test_function_change_id(strict: bool):
 
     assert exc_info.value.errors(include_url=False) == [
         {
-            'type': 'recursion_depth_exceeded',
+            'type': 'recursion_loop',
             'loc': IsTuple(length=(1, 255)),
-            'msg': 'Recursion error - maximum validation depth exceeded',
+            'msg': 'Recursion error - cyclic reference detected',
             'input': IsStr(regex=r'f-\d+'),
         }
     ]

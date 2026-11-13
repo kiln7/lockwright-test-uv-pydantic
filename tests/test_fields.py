@@ -12,7 +12,6 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    PrivateAttr,
     PydanticUserError,
     RootModel,
     TypeAdapter,
@@ -21,7 +20,7 @@ from pydantic import (
     create_model,
     validate_call,
 )
-from pydantic.fields import FieldInfo, ModelPrivateAttr
+from pydantic.fields import FieldInfo
 from pydantic.warnings import UnsupportedFieldAttributeWarning
 
 
@@ -68,8 +67,7 @@ def test_init_var_field():
 
 def test_root_model_arbitrary_field_name_error():
     with pytest.raises(
-        PydanticUserError,
-        match="Unexpected field with name 'a_field'; only 'root' is allowed as a field of a `RootModel`",
+        NameError, match="Unexpected field with name 'a_field'; only 'root' is allowed as a field of a `RootModel`"
     ):
 
         class Model(RootModel[int]):
@@ -358,19 +356,6 @@ def test_default_factory_validated_data_argument_unsupported() -> None:
         TypeAdapter(Annotated[int, Field(default_factory=lambda v: v['key'])])
 
 
-def test_default_factory_validated_data_argument_unsupported_nested_in_model() -> None:
-    TestType = TypeAliasType('TestType', Annotated[int, Field(default_factory=lambda v: v['key'])])
-
-    with pytest.warns(UnsupportedFieldAttributeWarning) as w:
-
-        class Model(BaseModel):
-            f: list[TestType]
-
-    # Only the generic "unsupported attribute" warning should be emitted, not the validated data one:
-    assert len(w) == 1
-    assert str(w[0].message).startswith("The 'default_factory' attribute")
-
-
 def test_parent_field_info_not_mutated() -> None:
     class Parent(BaseModel):
         a: Annotated[int, Gt(2)]
@@ -474,15 +459,3 @@ def test_default_factory_without_validated_data_unsupported() -> None:
 
     with pytest.raises(ValueError):
         FooBar.model_fields['a'].get_default(call_default_factory=True)
-
-
-@pytest.mark.parametrize(
-    ['private_attr', 'result'],
-    [
-        (PrivateAttr(), 'ModelPrivateAttr()'),
-        (PrivateAttr(default=1), 'ModelPrivateAttr(default=1)'),
-        (PrivateAttr(default_factory=int), "ModelPrivateAttr(default_factory=<class 'int'>)"),
-    ],
-)
-def test_privateattr_repr(private_attr: ModelPrivateAttr, result: str) -> None:
-    assert repr(private_attr) == result

@@ -1,18 +1,13 @@
 import gc
 import itertools
 import json
-import pickle
 import platform
 import re
-import subprocess
 import sys
-import weakref
 from collections import Counter, OrderedDict, defaultdict, deque
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from enum import Enum, IntEnum, StrEnum
-from textwrap import dedent
+from enum import Enum, IntEnum
 from typing import (
-    TYPE_CHECKING,
     Annotated,
     Any,
     ClassVar,
@@ -34,6 +29,7 @@ from typing_extensions import (  # noqa: UP035 (for `get_args`)
     TypeAliasType,
     TypedDict,
     TypeVarTuple,
+    Unpack,
     get_args,
 )
 from typing_extensions import (
@@ -65,22 +61,6 @@ from pydantic._internal._generics import (
     replace_types,
 )
 from pydantic.warnings import GenericBeforeBaseModelWarning
-
-IS_PYPY = sys.implementation.name == 'pypy'
-
-if TYPE_CHECKING:
-    import cloudpickle
-else:
-    # cloudpickle is broken on PyPy (https://github.com/cloudpipe/cloudpickle/issues/592):
-    # importing it raises `AttributeError`, not `ImportError`, so the guard below
-    # cannot catch it and the import must be avoided outright.
-    if not IS_PYPY:
-        try:
-            import cloudpickle
-        except ImportError:
-            cloudpickle = None
-    else:
-        cloudpickle = None
 
 
 def test_generic_name():
@@ -319,8 +299,15 @@ def test_parameter_count():
         x: T
         y: S
 
-    with pytest.raises(TypeError, match=f'Too many arguments for {repr(Model)}; actual 3, expected 2'):
+    with pytest.raises(TypeError) as exc_info:
         Model[int, int, int]
+
+    # This error message, which comes from `typing`, changed 'parameters' to 'arguments' in 3.11
+    error_message = str(exc_info.value)
+    assert error_message.startswith(('Too many parameters', 'Too many arguments'))
+    assert error_message.endswith(
+        " for <class 'tests.test_generics.test_parameter_count.<locals>.Model'>; actual 3, expected 2"
+    )
 
 
 def test_arguments_count_validation() -> None:
@@ -1030,133 +1017,6 @@ def test_generic_model_from_function_pickle_fail(create_module):
         original = get_generic(Model)(value=Model(a='24'))
         with pytest.raises(pickle.PicklingError):
             pickle.dumps(original)
-
-
-def test_generic_model_parametrized_in_other_module_pickle(create_module) -> None:
-    """https://github.com/pydantic/pydantic/issues/13991"""
-
-    @create_module
-    def module_1():
-        from typing import Generic, TypeVar
-
-        from pydantic import BaseModel
-
-        T = TypeVar('T')
-
-        class Page(BaseModel, Generic[T]):
-            items: list[T]
-
-        class Response(BaseModel, Generic[T]):
-            result: T
-
-    module_2 = create_module(
-        f"""
-from pydantic import BaseModel
-
-from {module_1.__name__} import Page, Response
-
-class Item(BaseModel):
-    name: str
-
-ItemResponse = Response[Page[Item]]
-        """
-    )
-
-    ItemResponse = module_2.ItemResponse
-    ItemPage = ItemResponse.model_fields['result'].annotation
-
-    assert ItemResponse.__module__ == ItemPage.__module__ == module_2.__name__
-    assert getattr(module_2, ItemResponse.__qualname__) is ItemResponse
-    assert getattr(module_2, ItemPage.__qualname__) is ItemPage
-    # The module where the generic classes are defined shouldn't be polluted:
-    assert not hasattr(module_1, ItemResponse.__qualname__)
-    assert not hasattr(module_1, ItemPage.__qualname__)
-
-    original = ItemResponse(result={'items': [{'name': 'a'}]})
-    loaded = pickle.loads(pickle.dumps(original))
-    assert type(loaded) is ItemResponse
-    assert type(loaded.result) is ItemPage
-    assert type(loaded.result.items[0]) is module_2.Item
-    assert loaded == original
-
-
-# `cloudpickle` is in the optional `testing-extra` dependency group, so the
-# subprocesses below may not be able to import it.
-@pytest.mark.skipif(
-    sys.platform == 'emscripten' or platform.python_implementation() == 'PyPy',
-    reason='no subprocesses on emscripten and PyPy pickle issue',
-)
-@pytest.mark.skipif(
-    cloudpickle is None,
-    reason='cloudpickle not installed, or tests are running with PyPy (https://github.com/cloudpipe/cloudpickle/issues/592).',
-)
-def test_generic_model_pickle_different_module(tmp_path) -> None:
-    """https://github.com/pydantic/pydantic/issues/9390#issuecomment-4561654742
-
-    This can't be reliably tested using the `create_module` fixture, so use subprocesses instead.
-    """
-
-    tmp_path.joinpath('module.py').write_text(
-        dedent(
-            """
-            from typing import Generic, TypeVar
-
-            from pydantic import BaseModel
-
-            T = TypeVar("T")
-
-            class Model(BaseModel, Generic[T]):
-                value: T
-            """
-        )
-    )
-
-    creator_code = dedent(
-        f"""
-        import base64
-        import sys
-
-        import cloudpickle
-
-        sys.path.insert(0, {str(tmp_path)!r})
-        from module import Model
-
-        value = Model[int](value=5)
-        print(base64.b64encode(cloudpickle.dumps(value, protocol=5)).decode())
-        """
-    )
-
-    creator = subprocess.run(
-        [sys.executable, '-c', creator_code],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-
-    assert creator.returncode == 0, creator.stderr
-    payload = creator.stdout.splitlines()[0]
-
-    loader_code = dedent(
-        f"""
-        import base64
-        import sys
-
-        import cloudpickle
-
-        sys.path.insert(0, {str(tmp_path)!r})
-
-        print(cloudpickle.loads(base64.b64decode({payload!r})))
-        """
-    )
-
-    loader = subprocess.run(
-        [sys.executable, '-c', loader_code],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-
-    assert loader.stdout.rstrip() == 'value=5'
 
 
 def test_generic_model_redefined_without_cache_fail(create_module, monkeypatch):
@@ -2158,7 +2018,7 @@ def test_generic_enum():
     class SomeGenericModel(BaseModel, Generic[T]):
         some_field: T
 
-    class SomeStringEnum(StrEnum):
+    class SomeStringEnum(str, Enum):
         A = 'A'
         B = 'B'
 
@@ -2187,10 +2047,10 @@ def test_generic_enums():
     class GModel(BaseModel, Generic[T]):
         x: T
 
-    class EnumA(StrEnum):
+    class EnumA(str, Enum):
         a = 'a'
 
-    class EnumB(StrEnum):
+    class EnumB(str, Enum):
         b = 'b'
 
     class Model(BaseModel):
@@ -2431,7 +2291,6 @@ def test_parse_generic_json():
     }
 
 
-@pytest.mark.skipif(sys.version_info >= (3, 15), reason="memray doesn't yet support Python 3.15")
 def memray_limit_memory(limit):
     if '--memray' in sys.argv:
         return pytest.mark.limit_memory(limit)
@@ -2486,6 +2345,9 @@ def test_generics_memory_use():
             pass
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason='list implementation is inconsistent between python versions here'
+)
 @pytest.mark.xfail(reason='Generic models are not type aliases', raises=TypeError)
 def test_generic_model_as_parameter_to_generic_type_alias() -> None:
     T = TypeVar('T')
@@ -2737,6 +2599,7 @@ def test_generic_intenum_bound():
     }
 
 
+@pytest.mark.skipif(sys.version_info < (3, 11), reason='requires python 3.11 or higher')
 @pytest.mark.xfail(
     reason='TODO: Variadic generic parametrization is not supported yet;'
     ' Issue: https://github.com/pydantic/pydantic/issues/5804'
@@ -2754,14 +2617,14 @@ def test_variadic_generic_init():
     ComponentVar = TypeVar('ComponentVar', bound=ComponentModel)
     NumberOfComponents = TypeVarTuple('NumberOfComponents')
 
-    class VariadicToolbox(BaseModel, Generic[ComponentVar, *NumberOfComponents]):
+    class VariadicToolbox(BaseModel, Generic[ComponentVar, Unpack[NumberOfComponents]]):
         main_component: ComponentVar
         left_component_pocket: list[ComponentVar] | None = Field(default_factory=list)
         right_component_pocket: list[ComponentVar] | None = Field(default_factory=list)
 
         @computed_field
         @property
-        def all_components(self) -> tuple[ComponentVar, *NumberOfComponents]:
+        def all_components(self) -> tuple[ComponentVar, Unpack[NumberOfComponents]]:
             return (self.main_component, *self.left_component_pocket, *self.right_component_pocket)
 
     sa, sb, w = Screwdriver(), Screwdriver(), Wrench()
@@ -2772,6 +2635,7 @@ def test_variadic_generic_init():
     assert my_toolbox.all_components == [sa, w, sb]
 
 
+@pytest.mark.skipif(sys.version_info < (3, 11), reason='requires python 3.11 or higher')
 @pytest.mark.xfail(
     reason='TODO: Variadic fields are not supported yet; Issue: https://github.com/pydantic/pydantic/issues/5804'
 )
@@ -2788,9 +2652,9 @@ def test_variadic_generic_with_variadic_fields():
     ComponentVar = TypeVar('ComponentVar', bound=ComponentModel)
     NumberOfComponents = TypeVarTuple('NumberOfComponents')
 
-    class VariadicToolbox(BaseModel, Generic[ComponentVar, *NumberOfComponents]):
-        toolbelt_cm_size: tuple[*NumberOfComponents] | None = Field(default_factory=tuple)
-        manual_toolset: tuple[ComponentVar, *NumberOfComponents] | None = Field(default_factory=tuple)
+    class VariadicToolbox(BaseModel, Generic[ComponentVar, Unpack[NumberOfComponents]]):
+        toolbelt_cm_size: tuple[Unpack[NumberOfComponents]] | None = Field(default_factory=tuple)
+        manual_toolset: tuple[ComponentVar, Unpack[NumberOfComponents]] | None = Field(default_factory=tuple)
 
     MyToolboxClass = VariadicToolbox[Screwdriver, Screwdriver, Wrench]
 
@@ -2802,6 +2666,13 @@ def test_variadic_generic_with_variadic_fields():
         MyToolboxClass(manual_toolset=(sa, sb, 5))
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11),
+    reason=(
+        'Multiple inheritance with NamedTuple and the corresponding type annotations'
+        " aren't supported before Python 3.11"
+    ),
+)
 def test_generic_namedtuple():
     T = TypeVar('T')
 
@@ -3307,35 +3178,3 @@ def test_revalidation_with_basic_inference() -> None:
     holder2 = Holder(inner=Inner(inner=1))
     # implies that validation succeeds for both
     assert holder1 == holder2
-
-
-def test_slots_forwarded_from_generic_class() -> None:
-    """https://github.com/pydantic/pydantic/issues/13215"""
-
-    T = TypeVar('T')
-
-    class Base(BaseModel, Generic[T]):
-        __slots__ = ()
-
-    BaseInt = Base[int]
-
-    assert BaseInt.__dict__['__slots__'] == ()
-
-    if platform.python_implementation() != 'PyPy':
-        with pytest.raises(TypeError):
-            # As per https://docs.python.org/3/reference/datamodel.html#slots:
-            weakref.ref(BaseInt())
-
-
-def test_generics_parameterization_not_hashable() -> None:
-    class NoHash:
-        __hash__ = None
-
-    T = TypeVar('T')
-
-    class Model(BaseModel, Generic[T]):
-        f: T
-
-    Mint = Model[Annotated[int, NoHash()]]
-
-    assert Mint(f='1').f == 1

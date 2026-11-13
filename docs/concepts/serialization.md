@@ -133,12 +133,6 @@ variety of types ([date and time types][datetime], [`UUID`][uuid.UUID] objects, 
 is used and can't be serialized to JSON, a [`PydanticSerializationError`][pydantic_core.PydanticSerializationError] exception
 is raised.
 
-A serialization error like this often only shows up when a particular object reaches the point of being
-serialized (commonly when building a response), so it can be easy to miss until it happens in
-production. Like any exception, it's captured by [Logfire](../integrations/logfire.md) if you've
-instrumented your application, in the context of the request that triggered it, and grouped with other
-occurrences so you can tell a one-off from a recurring problem.
-
 !!! info "See also"
     The [`TypeAdapter.dump_json()`][pydantic.TypeAdapter.dump_json] method, useful when *not* dealing with Pydantic models.
 
@@ -209,7 +203,7 @@ print(m)
 #> a='hello' b=123
 data = pickle.dumps(m)
 print(data[:20])
-#> b'\x80\x05\x95\x95\x00\x00\x00\x00\x00\x00\x00\x8c\x08__main_'
+#> b'\x80\x04\x95\x95\x00\x00\x00\x00\x00\x00\x00\x8c\x08__main_'
 m2 = pickle.loads(data)
 print(m2)
 #> a='hello' b=123
@@ -457,9 +451,7 @@ As with [field serializers](#field-serializers), **two** different types of mode
     ```
 
       1. `'plain'` is the default mode for the decorator, and can be omitted.
-      2. You are free to return a value that *isn't* a dictionary. However, note that this may cause
-         type checking issues (as the return type of [`model_dump()`][pydantic.main.BaseModel.model_dump]
-         is `dict[str, Any]`).
+      2. You are free to return a value that *isn't* a dictionary.
 
 * ***Wrap* serializers**: give more flexibility to customize the serialization behavior. You can run code before or after
   the Pydantic serialization logic.
@@ -601,11 +593,13 @@ print(m.model_dump())  # (1)!
 
 1. Note: the password field is not included
 
-!!! note
-    The motivation behind this behavior is that it helps ensure that you know precisely which fields could be
-    included when serializing, even if subclasses get passed when instantiating the object. In particular, this can
-    help prevent surprises when adding sensitive information like secrets as fields of subclasses. To include all
-    (subclass) fields when serializing, refer to the next section.
+!!! warning "Migration Warning"
+    This behavior is different from how things worked in Pydantic V1, where we would always include
+    all (subclass) fields when recursively serializing models to dictionaries. The motivation behind this change
+    in behavior is that it helps ensure that you know precisely which fields could be included when serializing,
+    even if subclasses get passed when instantiating the object. In particular, this can help prevent surprises
+    when adding sensitive information like secrets as fields of subclasses. To enable the old V1 behavior, refer
+    to the next section.
 
 <!-- old anchor added for backwards compatibility -->
 <!-- markdownlint-disable-next-line no-empty-links -->
@@ -614,7 +608,7 @@ print(m.model_dump())  # (1)!
 ### Polymorphic serialization
 
 /// version-added | v2.13
-Polymorphic serialization was added as a better alternative to the [serialize as any](#serializing-as-any) behavior, and only
+Polymorphic serialization was added as an better alternative to the [serialize as any](#serializing-as-any) behavior, and only
 applies to Pydantic models and Pydantic dataclasses.
 ///
 
@@ -625,9 +619,7 @@ This will expose all the data defined on the subclass in the serialized payload.
 This behavior can be configured in the following ways:
 
 * Configuration level: use the [`polymorphic_serialization`][pydantic.config.ConfigDict.polymorphic_serialization] setting
-  in the model/dataclass [configuration](./config.md). The configuration should be set on the class that should be polymorphic,
-  not on the class that references polymorphic classes.
-
+  in the model/dataclass [configuration](./config.md).
 * Runtime level: use the `polymorphic_serialization` argument when calling the [serialization methods](#serializing-data).
   This will apply to all (nested) types, overriding any configuration.
 
@@ -641,14 +633,17 @@ This behavior can be configured in the following ways:
     When using [standard library dataclasses][dataclasses], polymorphic serialization is *not* supported,
     even if the dataclass is a subclass of a Pydantic dataclass. This may be fixed in a future Pydantic release.
 
-The example below defines a type `User` and a subclass of it, `UserLogin`. It shows how the runtime
-`polymorphic_serialization` setting affects a `UserLogin` value in a field annotated as `User`:
+The example below defines a type `User` and a subclass of it, `UserLogin`. A second pair of types, `PolymorphicUser`
+and `PolymorphicUserLogin` are defined as equivalents with `polymorphic_serialization` enabled.
+
+We can then see the effect of serializing each of these types, and the interaction of this config with the runtime
+`polymorphic_serialization` setting:
 
 ```python
 from pydantic import BaseModel
 
 
-class User(BaseModel):  # (1)!
+class User(BaseModel):
     name: str
 
 
@@ -665,19 +660,19 @@ outer_model = OuterModel(
 )
 
 
-print(outer_model.model_dump())  # (2)!
+print(outer_model.model_dump())  # (1)!
 #> {'user': {'name': 'pydantic'}}
-print(outer_model.model_dump(polymorphic_serialization=True))  # (3)!
+print(outer_model.model_dump(polymorphic_serialization=True))  # (2)!
 #> {'user': {'name': 'pydantic', 'password': 'password'}}
 ```
 
-1. The `polymorphic_serialization` configuration would be set on this model to get the same behavior as the
-   runtime setting below.
-2. With polymorphic serialization disabled, `user` serializes as the base type.
-3. With polymorphic serialization enabled, `user` serializes as the actual runtime subclass.
+1. With polymorphic serialization disabled, `user` serializes as the base type.
+2. With polymorphic serialization enabled, `user` serializes as the actual runtime subclass.
 
-`outer_model.model_dump()` serializes `user` as a `User` value, excluding the subclass' `password` field.
-With `polymorphic_serialization=True`, it serializes the full `UserLogin` value instead.
+As seen in the example, by having polymorphic serialization enabled, the `User.model_dump()` method will by respect the value
+of the `UserLogin` subclass when it is provided instead of a `User` value, and serialize the full `UserLogin` type. This
+behavior can be globally overridden with the `polymorphic_serialization` runtime setting; in this case setting it to `False`
+causes the `UserLogin` value to serialize just as a `User` value, ignoring the subclass' `password` field.
 
 ## Serializing "as Any"
 
@@ -779,8 +774,8 @@ print(outer_model.model_dump(serialize_as_any=False))  # (2)!
 #> {'user1': {'name': 'pydantic'}, 'user2': {'name': 'pydantic'}}
 ```
 
-1. With `serialize_as_any` set to `True`, fields present on the subclass are included in serialization.
-2. With `serialize_as_any` set to `False` (the default), fields present on the subclass,
+1. With `serialize_as_any` set to `True`, the result matches that of V1.
+2. With `serialize_as_any` set to `False` (the V2 default), fields present on the subclass,
    but not the base class, are not included in serialization.
 
 However, do note that the *serialize as any* behavior will apply to *all* values, not only the values where duck typing
@@ -959,5 +954,5 @@ using the following parameters:
     ```
 
     !!! tip
-        The [`MISSING` sentinel](./types.md#missing-sentinel) can be used as an alternative to `exclude_unset`.
+        The experimental [`MISSING` sentinel](./experimental.md#missing-sentinel) can be used as an alternative to `exclude_unset`.
         Any field with `MISSING` as a value is automatically excluded from the serialization output.

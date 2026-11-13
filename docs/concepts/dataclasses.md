@@ -68,7 +68,7 @@ Some differences between Pydantic dataclasses and models include:
     * There is no way to customize validation of extra values [using the `__pydantic_extra__` attribute](./models.md#extra-data).
 * Generic dataclasses are supported, but as with other standard library generic types, using a parameterized dataclass won't work as expected:
 
-    === "Python 3.11"
+    === "Python 3.10 and above"
 
         ```python {upgrade="skip"}
         from typing import Generic, TypeVar
@@ -217,11 +217,6 @@ except pydantic.ValidationError as e:
       Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='pika', input_type=str]
     """
 ```
-
-Because a Pydantic dataclass validates its inputs just like a model, the same observability applies: if
-you use [Logfire](../integrations/logfire.md), validations of Pydantic dataclasses are
-[recorded alongside model validations](../errors/troubleshooting.md), with rejected values in their
-structured errors.
 
 The decorator can also be applied directly on a stdlib dataclass, in which case a new subclass will be created:
 

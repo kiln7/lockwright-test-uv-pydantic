@@ -3,11 +3,12 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use std::borrow::Cow;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 use serde::Serialize;
 
 use crate::PydanticSerializationUnexpectedValue;
+use crate::build_tools::LazyLock;
 use crate::{definitions::DefinitionsBuilder, input::Int};
 
 use crate::serializers::SerializationState;
@@ -42,11 +43,14 @@ impl_py_gc_traverse!(NoneSerializer {});
 
 impl TypeSerializer for NoneSerializer {
     fn to_python<'py>(&self, value: &Bound<'py, PyAny>, state: &mut SerializationState<'py>) -> PyResult<Py<PyAny>> {
-        if value.is_none() {
-            Ok(value.py().None())
-        } else {
-            state.warn_fallback_py(self.get_name(), value)?;
-            infer_to_python(value, state)
+        let py = value.py();
+        match state.extra.ob_type_lookup.is_type(value, ObType::None) {
+            IsType::Exact => Ok(py.None()),
+            // I don't think subclasses of None can exist
+            _ => {
+                state.warn_fallback_py(self.get_name(), value)?;
+                infer_to_python(value, state)
+            }
         }
     }
 
@@ -55,11 +59,12 @@ impl TypeSerializer for NoneSerializer {
         key: &'a Bound<'py, PyAny>,
         state: &mut SerializationState<'py>,
     ) -> PyResult<Cow<'a, str>> {
-        if key.is_none() {
-            none_json_key()
-        } else {
-            state.warn_fallback_py(self.get_name(), key)?;
-            infer_json_key(key, state)
+        match state.extra.ob_type_lookup.is_type(key, ObType::None) {
+            IsType::Exact => none_json_key(),
+            _ => {
+                state.warn_fallback_py(self.get_name(), key)?;
+                infer_json_key(key, state)
+            }
         }
     }
 
@@ -69,11 +74,12 @@ impl TypeSerializer for NoneSerializer {
         serializer: S,
         state: &mut SerializationState<'py>,
     ) -> Result<S::Ok, S::Error> {
-        if value.is_none() {
-            serializer.serialize_none()
-        } else {
-            state.warn_fallback_ser::<S>(self.get_name(), value)?;
-            infer_serialize(value, serializer, state)
+        match state.extra.ob_type_lookup.is_type(value, ObType::None) {
+            IsType::Exact => serializer.serialize_none(),
+            _ => {
+                state.warn_fallback_ser::<S>(self.get_name(), value)?;
+                infer_serialize(value, serializer, state)
+            }
         }
     }
 
@@ -89,8 +95,8 @@ macro_rules! build_simple_serializer {
 
         impl $struct_name {
             pub fn get() -> &'static std::sync::Arc<CombinedSerializer> {
-                static INSTANCE: std::sync::LazyLock<std::sync::Arc<CombinedSerializer>> =
-                    std::sync::LazyLock::new(|| std::sync::Arc::new($struct_name.into()));
+                static INSTANCE: $crate::build_tools::LazyLock<std::sync::Arc<CombinedSerializer>> =
+                    $crate::build_tools::LazyLock::new(|| std::sync::Arc::new($struct_name.into()));
                 &INSTANCE
             }
         }

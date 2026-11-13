@@ -1,8 +1,4 @@
-import importlib.util
-import inspect
 import pickle
-import typing
-from copy import deepcopy
 from datetime import date, datetime
 from typing import Annotated, Any, Generic, Literal, TypeVar
 
@@ -16,6 +12,7 @@ from pydantic import (
     ConfigDict,
     Field,
     PrivateAttr,
+    PydanticDeprecatedSince20,
     PydanticUserError,
     RootModel,
     ValidationError,
@@ -112,14 +109,6 @@ def test_root_model_repr():
     assert repr(SpecializedSubRootModel(1)) == 'SpecializedSubRootModel(root=1)'
 
 
-def test_root_model_repr_false():
-    class Token(RootModel[str]):
-        root: str = Field(repr=False)
-
-    assert repr(Token('secret')) == 'Token()'
-    assert str(Token('secret')) == ''
-
-
 def test_root_model_recursive():
     class A(RootModel[list['B']]):
         def my_a_method(self):
@@ -183,6 +172,8 @@ def test_v1_compatibility_serializer():
     m = MyOuterModel.model_validate({'my_root': {'x': 1}})
 
     assert m.model_dump() == {'my_root': {'__root__': {'x': 1}}}
+    with pytest.warns(PydanticDeprecatedSince20):
+        assert m.dict() == {'my_root': {'__root__': {'x': 1}}}
 
 
 def test_construct():
@@ -653,18 +644,6 @@ def test_root_model_shallow_copy() -> None:
     assert copied.root == [1, 2, 3, 4]
 
 
-def test_root_model_shallow_copy_private_attributes() -> None:
-    class Root(RootModel[int]):
-        _tag: str = PrivateAttr(default='original')
-
-    original = Root(1)
-    copied = original.model_copy(deep=False)
-
-    copied._tag = 'copy'
-    assert original._tag == 'original'
-    assert copied._tag == 'copy'
-
-
 def test_root_model_deep_copy() -> None:
     class NestedListRootModel(RootModel[list[list[int]]]):
         pass
@@ -676,18 +655,6 @@ def test_root_model_deep_copy() -> None:
     assert original.root is not copied.root
     assert original.root[0] is not copied.root[0]
     assert original.root == copied.root
-
-
-def test_root_model_deepcopy_self_referential() -> None:
-    class Nodes(RootModel[list[Any]]):
-        pass
-
-    original = Nodes([])
-    original.root.append(original)
-
-    for copied in (deepcopy(original), original.model_copy(deep=True)):
-        assert copied is not original
-        assert copied.root[0] is copied
 
 
 @pytest.mark.parametrize(
@@ -754,29 +721,3 @@ def test_model_with_both_docstring_and_field_description() -> None:
         'type': 'integer',
         'description': 'More detailed description',
     }
-
-
-def test_type_checking_model_dump_signature_in_sync_with_base_model() -> None:
-
-    import pydantic.root_model
-
-    spec = importlib.util.spec_from_file_location('pydantic._root_model_type_checking', pydantic.root_model.__file__)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-
-    typing.TYPE_CHECKING = True
-    try:
-        spec.loader.exec_module(module)
-    finally:
-        typing.TYPE_CHECKING = False
-
-    base_sig = inspect.signature(BaseModel.model_dump)
-    root_sig = inspect.signature(module.RootModel.model_dump)
-
-    # The return annotation intentionally differs (`Any` instead of `dict[str, Any]`),
-    # but the parameters must match exactly:
-    assert list(root_sig.parameters.values()) == list(base_sig.parameters.values())
-
-    assert module.RootModel.model_dump.__doc__ is not None
-    assert BaseModel.model_dump.__doc__ is not None
-    assert inspect.cleandoc(module.RootModel.model_dump.__doc__) == inspect.cleandoc(BaseModel.model_dump.__doc__)

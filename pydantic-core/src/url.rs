@@ -22,7 +22,13 @@ use crate::tools::SchemaDict;
 use crate::validators::url::{MultiHostUrlValidator, UrlValidator};
 use crate::validators::{Extra, ValidationState, Validator};
 
-#[pyclass(name = "Url", module = "pydantic_core._pydantic_core", subclass, frozen)]
+#[pyclass(
+    name = "Url",
+    module = "pydantic_core._pydantic_core",
+    subclass,
+    frozen,
+    skip_from_py_object
+)]
 #[derive(Clone)]
 #[cfg_attr(debug_assertions, derive(Debug))]
 pub struct PyUrl {
@@ -38,7 +44,7 @@ pub struct PyUrl {
 impl Hash for PyUrl {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.lib_url.hash(state);
-        self.has_empty_path().hash(state);
+        self.path_is_empty.hash(state);
         // no need to hash `serialized` as it's derived from the other two fields
     }
 }
@@ -57,18 +63,11 @@ impl PyUrl {
     }
 
     pub fn url_mut(&mut self) -> &mut Url {
-        // the URL is about to be mutated, invalidate the serialization cache:
-        self.serialized.take();
         &mut self.lib_url
     }
 
-    /// Whether the path should be treated as empty.
-    fn has_empty_path(&self) -> bool {
-        self.path_is_empty && self.lib_url.path() == "/"
-    }
-
     fn serialized(&self, py: Python<'_>) -> &str {
-        if self.has_empty_path() {
+        if self.path_is_empty {
             self.serialized
                 .get_or_init_py_attached(py, || serialize_url_without_path_slash(&self.lib_url))
         } else {
@@ -194,17 +193,14 @@ impl PyUrl {
         format!("Url('{}')", self.serialized(py))
     }
 
-    fn __richcmp__(&self, other: &Self, op: CompareOp, py: Python<'_>) -> PyResult<bool> {
-        // compare the serialized form (and not `lib_url`) to account for `path_is_empty`,
-        // consistently with `__hash__()`:
-        let (this, other) = (self.serialized(py), other.serialized(py));
+    fn __richcmp__(&self, other: &Self, op: CompareOp) -> PyResult<bool> {
         match op {
-            CompareOp::Lt => Ok(this < other),
-            CompareOp::Le => Ok(this <= other),
-            CompareOp::Eq => Ok(this == other),
-            CompareOp::Ne => Ok(this != other),
-            CompareOp::Gt => Ok(this > other),
-            CompareOp::Ge => Ok(this >= other),
+            CompareOp::Lt => Ok(self.lib_url < other.lib_url),
+            CompareOp::Le => Ok(self.lib_url <= other.lib_url),
+            CompareOp::Eq => Ok(self.lib_url == other.lib_url),
+            CompareOp::Ne => Ok(self.lib_url != other.lib_url),
+            CompareOp::Gt => Ok(self.lib_url > other.lib_url),
+            CompareOp::Ge => Ok(self.lib_url >= other.lib_url),
         }
     }
 
@@ -288,7 +284,13 @@ impl PyUrl {
     }
 }
 
-#[pyclass(name = "MultiHostUrl", module = "pydantic_core._pydantic_core", subclass, frozen)]
+#[pyclass(
+    name = "MultiHostUrl",
+    module = "pydantic_core._pydantic_core",
+    subclass,
+    frozen,
+    skip_from_py_object
+)]
 #[derive(Clone, Hash)]
 #[cfg_attr(debug_assertions, derive(Debug))]
 pub struct PyMultiHostUrl {
@@ -306,7 +308,7 @@ impl PyMultiHostUrl {
     }
 
     pub fn mut_lib_url(&mut self) -> &mut Url {
-        self.ref_url.url_mut()
+        &mut self.ref_url.lib_url
     }
 }
 
@@ -405,8 +407,7 @@ impl PyMultiHostUrl {
 
             for url in extra_urls {
                 let str = unicode_url(url.as_str(), url);
-                // extra urls don't necessarily have the same scheme as the main one (see `parse_multihost_url()`):
-                extra_hosts.push_str(&str[url.scheme().len() + 3..str.len() - sub]);
+                extra_hosts.push_str(&str[host_offset..str.len() - sub]);
                 extra_hosts.push(',');
             }
 
@@ -432,8 +433,7 @@ impl PyMultiHostUrl {
 
             for url in extra_urls {
                 let str = url.as_str();
-                // extra urls don't necessarily have the same scheme as the main one (see `parse_multihost_url()`):
-                extra_hosts.push_str(&str[url.scheme().len() + 3..str.len() - sub]);
+                extra_hosts.push_str(&str[host_offset..str.len() - sub]);
                 extra_hosts.push(',');
             }
 

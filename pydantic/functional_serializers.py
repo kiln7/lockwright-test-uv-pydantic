@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, TypeAlias, TypeVar, o
 
 from pydantic_core import PydanticUndefined, core_schema
 from pydantic_core.core_schema import SerializationInfo, SerializerFunctionWrapHandler, WhenUsed
-from typing_extensions import TypeForm
 
 from . import PydanticUndefinedAnnotation
 from ._internal import _decorators
@@ -49,7 +48,7 @@ class PlainSerializer:
     """
 
     func: core_schema.SerializerFunction
-    return_type: TypeForm[Any] = PydanticUndefined  # pyright: ignore[reportAssignmentType]
+    return_type: Any = PydanticUndefined
     when_used: WhenUsed = 'always'
 
     def __get_pydantic_core_schema__(self, source_type: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
@@ -98,41 +97,50 @@ class WrapSerializer:
     from datetime import datetime, timezone
     from typing import Annotated, Any
 
-    from pydantic import (
-        BaseModel,
-        SerializationInfo,
-        SerializerFunctionWrapHandler,
-        WrapSerializer,
-    )
+    from pydantic import BaseModel, WrapSerializer
 
-    def convert_to_utc(
-        value: Any, handler: SerializerFunctionWrapHandler, info: SerializationInfo
-    ):
+    class EventDatetime(BaseModel):
+        start: datetime
+        end: datetime
+
+    def convert_to_utc(value: Any, handler, info) -> dict[str, datetime]:
         # Note that `handler` can actually help serialize the `value` for
         # further custom serialization in case it's a subclass.
-        serialized = handler(value)
+        partial_result = handler(value, info)
         if info.mode == 'json':
-            return datetime.fromisoformat(serialized).astimezone(timezone.utc)
-        else:
-            return serialized.astimezone(timezone.utc)
+            return {
+                k: datetime.fromisoformat(v).astimezone(timezone.utc)
+                for k, v in partial_result.items()
+            }
+        return {k: v.astimezone(timezone.utc) for k, v in partial_result.items()}
 
-    UTCDatetime = Annotated[datetime, WrapSerializer(convert_to_utc)]
+    UTCEventDatetime = Annotated[EventDatetime, WrapSerializer(convert_to_utc)]
 
     class EventModel(BaseModel):
-        event_datetime: UTCDatetime
+        event_datetime: UTCEventDatetime
 
-    event = EventModel(event_datetime='2024-01-01T07:00:00-08:00')
+    dt = EventDatetime(
+        start='2024-01-01T07:00:00-08:00', end='2024-01-03T20:00:00+06:00'
+    )
+    event = EventModel(event_datetime=dt)
     print(event.model_dump())
     '''
     {
-        'event_datetime': datetime.datetime(
-            2024, 1, 1, 15, 0, tzinfo=datetime.timezone.utc
-        )
+        'event_datetime': {
+            'start': datetime.datetime(
+                2024, 1, 1, 15, 0, tzinfo=datetime.timezone.utc
+            ),
+            'end': datetime.datetime(
+                2024, 1, 3, 14, 0, tzinfo=datetime.timezone.utc
+            ),
+        }
     }
     '''
 
     print(event.model_dump_json())
-    #> {"event_datetime":"2024-01-01T15:00:00Z"}
+    '''
+    {"event_datetime":{"start":"2024-01-01T15:00:00Z","end":"2024-01-03T14:00:00Z"}}
+    '''
     ```
 
     Attributes:
@@ -143,7 +151,7 @@ class WrapSerializer:
     """
 
     func: core_schema.WrapSerializerFunction
-    return_type: TypeForm[Any] = PydanticUndefined  # pyright: ignore[reportAssignmentType]
+    return_type: Any = PydanticUndefined
     when_used: WhenUsed = 'always'
 
     def __get_pydantic_core_schema__(self, source_type: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
@@ -203,7 +211,7 @@ def field_serializer(
     /,
     *fields: str,
     mode: Literal['wrap'],
-    return_type: TypeForm[Any] = ...,
+    return_type: Any = ...,
     when_used: WhenUsed = ...,
     check_fields: bool | None = ...,
 ) -> Callable[[_FieldWrapSerializerT], _FieldWrapSerializerT]: ...
@@ -215,7 +223,7 @@ def field_serializer(
     /,
     *fields: str,
     mode: Literal['plain'] = ...,
-    return_type: TypeForm[Any] = ...,
+    return_type: Any = ...,
     when_used: WhenUsed = ...,
     check_fields: bool | None = ...,
 ) -> Callable[[_FieldPlainSerializerT], _FieldPlainSerializerT]: ...
@@ -226,7 +234,8 @@ def field_serializer(  # noqa: D417
     /,
     *fields: str,
     mode: Literal['plain', 'wrap'] = 'plain',
-    return_type: TypeForm[Any] = PydanticUndefined,  # pyright: ignore[reportArgumentType]
+    # TODO PEP 747 (grep for 'return_type' on the whole code base):
+    return_type: Any = PydanticUndefined,
     when_used: WhenUsed = 'always',
     check_fields: bool | None = None,
 ) -> (
@@ -339,7 +348,7 @@ def model_serializer(f: _ModelPlainSerializerT, /) -> _ModelPlainSerializerT: ..
 
 @overload
 def model_serializer(
-    *, mode: Literal['wrap'], when_used: WhenUsed = 'always', return_type: TypeForm[Any] = ...
+    *, mode: Literal['wrap'], when_used: WhenUsed = 'always', return_type: Any = ...
 ) -> Callable[[_ModelWrapSerializerT], _ModelWrapSerializerT]: ...
 
 
@@ -348,17 +357,17 @@ def model_serializer(
     *,
     mode: Literal['plain'] = ...,
     when_used: WhenUsed = 'always',
-    return_type: TypeForm[Any] = ...,
+    return_type: Any = ...,
 ) -> Callable[[_ModelPlainSerializerT], _ModelPlainSerializerT]: ...
 
 
-def model_serializer(  # pyright: ignore[reportInconsistentOverload]
+def model_serializer(
     f: _ModelPlainSerializerT | _ModelWrapSerializerT | None = None,
     /,
     *,
     mode: Literal['plain', 'wrap'] = 'plain',
     when_used: WhenUsed = 'always',
-    return_type: TypeForm[Any] = PydanticUndefined,  # pyright: ignore[reportArgumentType]
+    return_type: Any = PydanticUndefined,
 ) -> (
     _ModelPlainSerializerT
     | Callable[[_ModelWrapSerializerT], _ModelWrapSerializerT]

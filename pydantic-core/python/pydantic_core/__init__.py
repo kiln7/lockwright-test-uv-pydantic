@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import sys as _sys
-from collections.abc import MutableSet
 from typing import Any as _Any
-from typing import NotRequired as _NotRequired
 
 from typing_extensions import Sentinel
 
 from ._pydantic_core import (
     ArgsKwargs,
-    ModelFieldsSet,
     MultiHostUrl,
     PydanticCustomError,
     PydanticKnownError,
@@ -33,39 +30,43 @@ from ._pydantic_core import (
 )
 from .core_schema import CoreConfig, CoreSchema, CoreSchemaType, ErrorType
 
+if _sys.version_info < (3, 11):
+    from typing_extensions import NotRequired as _NotRequired
+else:
+    from typing import NotRequired as _NotRequired
+
 if _sys.version_info < (3, 12):
     from typing_extensions import TypedDict as _TypedDict
 else:
     from typing import TypedDict as _TypedDict
 
 __all__ = [
+    '__version__',
     'UNSET',
-    'ArgsKwargs',
     'CoreConfig',
     'CoreSchema',
     'CoreSchemaType',
+    'SchemaValidator',
+    'SchemaSerializer',
+    'Some',
+    'Url',
+    'MultiHostUrl',
+    'ArgsKwargs',
+    'PydanticUndefined',
+    'PydanticUndefinedType',
+    'SchemaError',
     'ErrorDetails',
     'InitErrorDetails',
-    'ModelFieldsSet',
-    'MultiHostUrl',
+    'ValidationError',
     'PydanticCustomError',
     'PydanticKnownError',
     'PydanticOmit',
+    'PydanticUseDefault',
     'PydanticSerializationError',
     'PydanticSerializationUnexpectedValue',
-    'PydanticUndefined',
-    'PydanticUndefinedType',
-    'PydanticUseDefault',
-    'SchemaError',
-    'SchemaSerializer',
-    'SchemaValidator',
-    'Some',
     'TzInfo',
-    'Url',
-    'ValidationError',
-    '__version__',
-    'from_json',
     'to_json',
+    'from_json',
     'to_jsonable_python',
 ]
 
@@ -145,51 +146,26 @@ class MultiHostHost(_TypedDict):
 
 
 MISSING = Sentinel('MISSING')
+"""A singleton indicating a field value was not provided during validation.
+
+This singleton can be used a default value, as an alternative to `None` when it has
+an explicit meaning. During serialization, any field with `MISSING` as a value is excluded
+from the output.
+
+Example:
+    ```python
+    from pydantic import BaseModel
+
+    from pydantic_core import MISSING
+
+
+    class Configuration(BaseModel):
+        timeout: int | None | MISSING = MISSING
+
+
+    # configuration defaults, stored somewhere else:
+    defaults = {'timeout': 200}
+
+    conf = Configuration.model_validate({...})
+    timeout = conf.timeout if timeout.timeout is not MISSING else defaults['timeout']
 """
-/// version-added | v2.12
-///
-
-/// version-changed | v2.14
-The `MISSING` sentinel is no longer experimental.
-///
-
-The `MISSING` sentinel is a singleton indicating a field value was not provided during validation.
-
-This singleton can be used as a default value, as an alternative to `None` when it has an explicit
-meaning. During serialization, any field with `MISSING` as a value is excluded from the output.
-
-At runtime, the `MISSING` sentinel is implemented as a [`sentinel`](https://docs.python.org/3.15/library/functions.html#sentinel) instance.
-
-```python
-from pydantic import MISSING, BaseModel
-
-
-class Configuration(BaseModel):
-    timeout: int | None | MISSING = MISSING
-
-
-# configuration defaults, stored somewhere else:
-defaults = {'timeout': 200}
-
-conf = Configuration()
-
-# `timeout` is excluded from the serialization output:
-conf.model_dump()
-# {}
-
-# The `MISSING` value doesn't appear in the JSON Schema:
-Configuration.model_json_schema()['properties']['timeout']
-#> {'anyOf': [{'type': 'integer'}, {'type': 'null'}], 'title': 'Timeout'}
-
-
-# `is` can be used to discriminate between the sentinel and other values:
-timeout = conf.timeout if conf.timeout is not MISSING else defaults['timeout']
-```
-
-!!! note
-    When [applying constraints](./fields.md#field-constraints) to a union containing the `MISSING` sentinel,
-    such constraints are automatically applied to the remaining type(s) of the union.
-"""
-
-
-MutableSet.register(ModelFieldsSet)

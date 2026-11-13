@@ -1,4 +1,6 @@
-from typing import TypedDict, assert_type
+from typing import TypedDict
+
+from typing_extensions import assert_type
 
 from pydantic import ConfigDict, with_config
 
@@ -10,6 +12,11 @@ class Model1(TypedDict):
 
 @with_config(str_to_lower=True)
 class Model2(TypedDict):
+    pass
+
+
+@with_config(config=ConfigDict(str_to_lower=True))  # type: ignore[deprecated]  # pyright: ignore[reportDeprecated]
+class Model3(TypedDict):
     pass
 
 

@@ -1,9 +1,10 @@
 use std::borrow::Cow;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 use pyo3::types::{PyDict, PyString};
 use pyo3::{IntoPyObjectExt, prelude::*};
 
+use crate::build_tools::LazyLock;
 use crate::definitions::DefinitionsBuilder;
 use crate::serializers::SerializationState;
 use crate::serializers::errors::unwrap_ser_error;
@@ -61,7 +62,8 @@ impl TypeSerializer for StrSerializer {
         state: &mut SerializationState<'py>,
     ) -> PyResult<Cow<'a, str>> {
         if let Ok(py_str) = key.cast::<PyString>() {
-            Ok(py_str.to_string_lossy())
+            // FIXME py cow to avoid the copy
+            Ok(Cow::Owned(py_str.to_string_lossy().into_owned()))
         } else {
             state.warn_fallback_py(self.get_name(), key)?;
             infer_json_key(key, state)

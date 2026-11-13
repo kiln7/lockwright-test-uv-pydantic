@@ -123,7 +123,7 @@ print(field_info.metadata)
 #> [Gt(gt=1), WithJsonSchema(json_schema={'extra': 'data'}, mode=None)]
 ```
 
-/// version-changed | v3
+/// deprecated-removed | v2.11 v3
 [`model_fields`][pydantic.main.BaseModel.model_fields] can only be accessed from the class object, not the instance.
 ///
 
@@ -141,6 +141,12 @@ class User(BaseModel):
     name: str = 'John Doe'
     age: int = Field(default=20)
 ```
+
+/// version-changed | v2
+[In Pydantic V1](../migration.md#required-optional-and-nullable-fields), a type annotated as [`Any`][typing.Any]
+or wrapped by [`Optional`][typing.Optional] would be given an implicit default of `None` even if no
+default was explicitly specified. This is no longer the case in Pydantic V2.
+///
 
 You can also pass a callable to the `default_factory` argument that will be called to generate a default value:
 
@@ -447,7 +453,7 @@ The available constraints for each type (and the way they affect the JSON Schema
 in the [standard library types](../api/standard_library_types.md) documentation.
 
 !!! note
-    When adding constraints to a union type, if a member of the union is `None` or the [`MISSING` sentinel](./types.md#missing-sentinel),
+    When adding constraints to a union type, if a member of the union is `None` or the [`MISSING` sentinel](./experimental.md#missing-sentinel),
     the constraints will be automatically applied to the remaining type(s) of the union:
 
     ```python
@@ -653,9 +659,6 @@ except ValidationError as e:
 
 1. Since `name` field is frozen, the assignment is not allowed.
 
-Fields can also be made immutable using the [`Final`][typing.Final] type qualifier (e.g. `name: Final[str]`).
-If no type is provided (e.g. `name: Final = 'John'`), it is inferred from the default value.
-
 <!-- old anchor added for backwards compatibility -->
 <!-- markdownlint-disable-next-line no-empty-links -->
 [](){#exclude}
@@ -728,7 +731,7 @@ The [`@warnings.deprecated`][warnings.deprecated] decorator (or the
 
 <!-- TODO: tabs should be auto-generated if using Ruff (https://github.com/pydantic/pydantic/issues/10083) -->
 
-=== "Python 3.11"
+=== "Python 3.10 and above"
 
     ```python
     from typing import Annotated

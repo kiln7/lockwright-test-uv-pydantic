@@ -7,7 +7,9 @@ from pydantic_core import core_schema as cs
 def test_json_or_python():
     class Foo(str):
         def __eq__(self, o: object) -> bool:
-            return bool(isinstance(o, Foo) and super().__eq__(o))
+            if isinstance(o, Foo) and super().__eq__(o):
+                return True
+            return False
 
     s = cs.json_or_python_schema(
         json_schema=cs.no_info_after_validator_function(Foo, cs.str_schema()), python_schema=cs.is_instance_schema(Foo)

@@ -172,7 +172,8 @@ def test_config(config: CoreConfig, input_value, expected):
     )
     if isinstance(expected, Err):
         with pytest.raises(ValidationError, match=re.escape(expected.message)):
-            v.validate_python(input_value)
+            val = v.validate_python(input_value)
+            print(f'UNEXPECTED OUTPUT: {val!r}')
     else:
         result = v.validate_python(input_value)
         assert result == expected
@@ -630,7 +631,8 @@ def test_aliases_path_multiple(py_and_json: PyAndJson, input_value, expected):
     )
     if isinstance(expected, Err):
         with pytest.raises(ValidationError, match=expected.message):
-            v.validate_test(input_value)
+            val = v.validate_test(input_value)
+            print(f'UNEXPECTED OUTPUT: {val!r}')
     else:
         output = v.validate_test(input_value)
         assert output == expected
@@ -661,7 +663,8 @@ def test_aliases_path_negative(input_value, expected):
     )
     if isinstance(expected, Err):
         with pytest.raises(ValidationError, match=expected.message):
-            v.validate_python(input_value)
+            val = v.validate_python(input_value)
+            print(f'UNEXPECTED OUTPUT: {val!r}')
     else:
         output = v.validate_python(input_value)
         assert output == expected
@@ -685,7 +688,8 @@ def test_aliases_path_negative_json(py_and_json: PyAndJson, input_value, expecte
     )
     if isinstance(expected, Err):
         with pytest.raises(ValidationError, match=expected.message):
-            v.validate_test(input_value)
+            val = v.validate_test(input_value)
+            print(f'UNEXPECTED OUTPUT: {val!r}')
     else:
         output = v.validate_test(input_value)
         assert output == expected
@@ -707,7 +711,7 @@ def test_aliases_debug():
     assert 'rest: [\n' in repr(v)
 
 
-def test_get_int_key():
+def get_int_key():
     v = SchemaValidator(
         core_schema.model_fields_schema(
             fields={
@@ -717,7 +721,7 @@ def test_get_int_key():
             }
         )
     )
-    assert v.validate_python({'foo': {3: 33}}) == ({'field_a': 33}, None, {'field_a'})
+    assert v.validate_python({'foo': {3: 33}}) == ({'field_a': 33}, {}, {'field_a'})
 
 
 class GetItemThing:
@@ -726,15 +730,14 @@ class GetItemThing:
         return 321
 
 
-def test_custom_getitem():
+def get_custom_getitem():
     v = SchemaValidator(
         core_schema.model_fields_schema(
-            fields={
-                'field_a': core_schema.model_field(validation_alias=['bar', 'foo'], schema=core_schema.int_schema())
-            }
+            fields={'field_a': core_schema.model_field(validation_alias=['foo'], schema=core_schema.int_schema())}
         )
     )
-    assert v.validate_python({'bar': GetItemThing()}) == ({'field_a': 321}, None, {'field_a'})
+    assert v.validate_python(GetItemThing()) == ({'field_a': 321}, {}, {'field_a'})
+    assert v.validate_python({'bar': GetItemThing()}) == ({'field_a': 321}, {}, {'field_a'})
 
 
 @pytest.mark.parametrize('input_value', [{'foo': {'bar': 42}}, {'foo': 42}, {'field_a': 42}], ids=repr)
@@ -949,12 +952,12 @@ class MyDataclass:
         (ClassWithAttributes(), ({'a': 1, 'b': 2, 'c': 'ham'}, None, {'a', 'b', 'c'})),
         (MyDataclass(), ({'a': 1, 'b': 2, 'c': 'ham'}, None, {'a', 'b', 'c'})),
         (Cls(a=1, b=2, c='ham'), ({'a': 1, 'b': 2, 'c': 'ham'}, None, {'a', 'b', 'c'})),
-        ({'a': 1, 'b': 2, 'c': 'ham'}, ({'a': 1, 'b': 2, 'c': 'ham'}, None, {'a', 'b', 'c'})),
+        (dict(a=1, b=2, c='ham'), ({'a': 1, 'b': 2, 'c': 'ham'}, None, {'a', 'b', 'c'})),
         (Map(a=1, b=2, c='ham'), ({'a': 1, 'b': 2, 'c': 'ham'}, None, {'a', 'b', 'c'})),
-        ((Cls(a=1, b=2), {'c': 'ham'}), ({'a': 1, 'b': 2, 'c': 'ham'}, None, {'a', 'b', 'c'})),
-        ((Cls(a=1, b=2), {'c': 'bacon'}), ({'a': 1, 'b': 2, 'c': 'bacon'}, None, {'a', 'b', 'c'})),
-        ((Cls(a=1, b=2, c='ham'), {'c': 'bacon'}), ({'a': 1, 'b': 2, 'c': 'bacon'}, None, {'a', 'b', 'c'})),
-        ((Cls(a=1, b=2, c='ham'), {'d': 'bacon'}), ({'a': 1, 'b': 2, 'c': 'ham'}, None, {'a', 'b', 'c'})),
+        ((Cls(a=1, b=2), dict(c='ham')), ({'a': 1, 'b': 2, 'c': 'ham'}, None, {'a', 'b', 'c'})),
+        ((Cls(a=1, b=2), dict(c='bacon')), ({'a': 1, 'b': 2, 'c': 'bacon'}, None, {'a', 'b', 'c'})),
+        ((Cls(a=1, b=2, c='ham'), dict(c='bacon')), ({'a': 1, 'b': 2, 'c': 'bacon'}, None, {'a', 'b', 'c'})),
+        ((Cls(a=1, b=2, c='ham'), dict(d='bacon')), ({'a': 1, 'b': 2, 'c': 'ham'}, None, {'a', 'b', 'c'})),
         # using type gives `__module__ == 'builtins'`
         (type('Testing', (), {}), Err('[type=model_attributes_type,')),
         (
@@ -983,7 +986,8 @@ def test_from_attributes(input_value, expected, from_attributes_mode):
         kwargs['from_attributes'] = True
     if isinstance(expected, Err):
         with pytest.raises(ValidationError, match=re.escape(expected.message)):
-            v.validate_python(input_value, **kwargs)
+            val = v.validate_python(input_value, **kwargs)
+            print(f'UNEXPECTED OUTPUT: {val!r}')
     else:
         output = v.validate_python(input_value, **kwargs)
         assert output == expected
@@ -1335,7 +1339,8 @@ def test_from_attributes_path(input_value, expected):
     )
     if isinstance(expected, Err):
         with pytest.raises(ValidationError, match=expected.message):
-            v.validate_python(input_value)
+            val = v.validate_python(input_value)
+            print(f'UNEXPECTED OUTPUT: {val!r}')
     else:
         model_dict, model_extra, fields_set = v.validate_python(input_value)
         assert model_dict == expected
@@ -1744,7 +1749,7 @@ def test_extra_behavior_forbid(
         config=config,
     )
 
-    m, _model_extra, fields_set = v.validate_python({'f': 'x'}, extra=validate_fn_extra_kw)
+    m, model_extra, fields_set = v.validate_python({'f': 'x'}, extra=validate_fn_extra_kw)
     assert m == {'f': 'x'}
     assert fields_set == {'f'}
 

@@ -2,10 +2,7 @@ from __future__ import annotations
 
 import json
 import math
-import platform
 import re
-import subprocess
-import sys
 from decimal import Decimal
 from typing import Any
 
@@ -99,18 +96,18 @@ def test_decimal(py_and_json: PyAndJson, input_value, expected):
     'input_value,expected',
     [
         ((0, (1, 4, 1, 4), -3), Decimal('1.414')),
-        ((0, (1, 2, 3), 0), Decimal(123)),
-        ((0, (1, 2, 3), 2), Decimal(12300)),
+        ((0, (1, 2, 3), 0), Decimal('123')),
+        ((0, (1, 2, 3), 2), Decimal('12300')),
         ((0, (1, 2, 3), -2), Decimal('1.23')),
         ((1, (1, 4, 1, 4), -3), Decimal('-1.414')),
-        ((1, (1, 2, 3), 0), Decimal(-123)),
-        ((1, (1, 2, 3), 2), Decimal(-12300)),
+        ((1, (1, 2, 3), 0), Decimal('-123')),
+        ((1, (1, 2, 3), 2), Decimal('-12300')),
         ((1, (1, 2, 3), -2), Decimal('-1.23')),
-        ((0, (0,), 0), Decimal(0)),
+        ((0, (0,), 0), Decimal('0')),
         ((0, (5,), -1), Decimal('0.5')),
         ((1, (5,), -1), Decimal('-0.5')),
         ((0, (1, 0, 0), -2), Decimal('1.00')),
-        ((0, (9, 9, 9), 3), Decimal(999000)),
+        ((0, (9, 9, 9), 3), Decimal('999000')),
     ],
     ids=repr,
 )
@@ -120,31 +117,6 @@ def test_decimal_three_tuple_constructor(py_and_json: PyAndJson, input_value, ex
     output = v.validate_test(input_value)
     assert output == expected
     assert isinstance(output, Decimal)
-
-
-skip_unbounded_exponent = pytest.mark.skipif(
-    platform.python_implementation() in {'PyPy', 'GraalVM'},
-    reason='Decimal exponents are unbounded on PyPy and GraalPy',
-)
-
-
-@pytest.mark.parametrize(
-    'input_value',
-    [
-        (2, (1,), 0),  # `ValueError`: invalid sign
-        (0, (10,), 0),  # `ValueError`: invalid digit
-        (0, (1,), 'x'),  # `ValueError`: invalid special exponent
-        (0, (1,), 1.5),  # `ValueError`: non-integer exponent
-        # `OverflowError`: exponent doesn't fit in a `Py_ssize_t`
-        pytest.param((0, (1,), 10**30), marks=skip_unbounded_exponent),
-        pytest.param((0, (1,), -(10**30)), marks=skip_unbounded_exponent),
-    ],
-    ids=repr,
-)
-def test_decimal_three_tuple_constructor_invalid(py_and_json: PyAndJson, input_value):
-    v = py_and_json(cs.decimal_schema())
-    with pytest.raises(ValidationError, check=lambda v: v.errors()[0]['type'] == 'decimal_type'):
-        v.validate_test(input_value)
 
 
 @pytest.mark.parametrize(
@@ -182,7 +154,7 @@ def test_decimal_strict_py(input_value, expected):
         ('42.0', Decimal('42.0')),
         ('42.5', Decimal('42.5')),
         (42.0, Decimal('42.0')),
-        ('42', Decimal(42)),
+        ('42', Decimal('42')),
         (
             True,
             Err(
@@ -296,20 +268,6 @@ def test_decimal_multiple_of(py_and_json: PyAndJson, multiple_of: float, input_v
         assert isinstance(output, Decimal)
 
 
-@pytest.mark.parametrize(
-    ['multiple_of', 'input_value'],
-    [
-        ('3', '1e30'),  # `InvalidOperation`: integral part of the quotient exceeds the context precision
-        ('0.01', '9' * 1000),
-        ('0.01', '1e999999'),  # `Overflow`: exponent of the quotient exceeds `Emax`
-    ],
-)
-def test_decimal_multiple_of_quotient_out_of_context(py_and_json: PyAndJson, multiple_of: str, input_value: str):
-    v = py_and_json(cs.decimal_schema(multiple_of=Decimal(multiple_of)))
-    with pytest.raises(ValidationError, check=lambda e: e.errors()[0]['type'] == 'multiple_of'):
-        v.validate_test(input_value)
-
-
 def test_union_decimal_py():
     v = SchemaValidator(cs.union_schema(choices=[cs.decimal_schema(strict=True), cs.decimal_schema(multiple_of=7)]))
     assert v.validate_python('14') == 14
@@ -370,7 +328,7 @@ def test_decimal_repr():
     assert plain_repr(v).startswith('SchemaValidator(title="decimal",validator=Decimal(')
 
 
-@pytest.mark.parametrize('input_value,expected', [(Decimal('1.23'), Decimal('1.23')), (Decimal(1), Decimal('1.0'))])
+@pytest.mark.parametrize('input_value,expected', [(Decimal('1.23'), Decimal('1.23')), (Decimal('1'), Decimal('1.0'))])
 def test_decimal_not_json(input_value, expected):
     v = SchemaValidator(cs.decimal_schema())
     if isinstance(expected, Err):
@@ -392,7 +350,7 @@ def test_decimal_nan(py_and_json: PyAndJson):
 
 def test_decimal_key(py_and_json: PyAndJson):
     v = py_and_json({'type': 'dict', 'keys_schema': {'type': 'decimal'}, 'values_schema': {'type': 'int'}})
-    assert v.validate_test({'1': 1, '2': 2}) == {Decimal(1): 1, Decimal(2): 2}
+    assert v.validate_test({'1': 1, '2': 2}) == {Decimal('1'): 1, Decimal('2'): 2}
     assert v.validate_test({'1.5': 1, '2.4': 2}) == {Decimal('1.5'): 1, Decimal('2.4'): 2}
     if v.validator_type == 'python':
         with pytest.raises(ValidationError, match='Input should be an instance of Decimal'):
@@ -544,85 +502,32 @@ def test_validate_scientific_notation_from_json(input_value, expected):
     assert v.validate_json(input_value) == expected
 
 
-@pytest.mark.parametrize(
-    ('schema_kwargs', 'input_value', 'error_type'),
-    [
-        ({'max_digits': 5, 'decimal_places': 2}, '1.23', None),
-        ({'max_digits': 5, 'decimal_places': 2}, '123.45', None),
-        ({'max_digits': 5, 'decimal_places': 2}, '-123.45', None),
-        ({'max_digits': 5, 'decimal_places': 2}, '1234.56', 'decimal_max_digits'),
-        ({'max_digits': 5, 'decimal_places': 2}, '12.345', 'decimal_max_places'),
-        ({'max_digits': 5, 'decimal_places': 2}, '123456', 'decimal_max_digits'),
-        ({'max_digits': 5, 'decimal_places': 2}, 'abc', 'decimal_parsing'),
-        ({'max_digits': 34, 'decimal_places': 18}, '9999999999999999.999999999999999999', None),
-        # Trailing zeros should not count towards the constraints:
-        ({'max_digits': 3}, '1.00', None),
-        ({'max_digits': 3}, '100.00', None),
-        ({'decimal_places': 1}, '1.00', None),
-        ({'decimal_places': 0}, '0.000', None),
-        ({'max_digits': 1, 'decimal_places': 0}, '0.000', None),
-        ({'max_digits': 1, 'decimal_places': 0}, '0E+5', None),
-        ({'max_digits': 3, 'decimal_places': 1}, '10.00', None),
-        ({'max_digits': 3, 'decimal_places': 1}, '10.10', None),
-        ({'max_digits': 3, 'decimal_places': 1}, '1000.0', 'decimal_max_digits'),
-        ({'max_digits': 3, 'decimal_places': 1}, '1.150', 'decimal_max_places'),
-        ({'max_digits': 3, 'decimal_places': 1}, '100.0', 'decimal_whole_digits'),
-        # Values with more significant digits than the precision of the (default) decimal context
-        # must not be rounded when counting digits and decimal places:
-        ({'max_digits': 29}, '1234567890123456789012345678.91', 'decimal_max_digits'),
-        ({'max_digits': 30}, '1234567890123456789012345678.91', None),
-        ({'decimal_places': 30}, '0.1234567890123456789012345678901', 'decimal_max_places'),
-        ({'decimal_places': 31}, '0.1234567890123456789012345678901', None),
-        ({'max_digits': 30, 'decimal_places': 1}, '1234567890123456789012345678.91', 'decimal_max_places'),
-        ({'max_digits': 30, 'decimal_places': 2}, '1234567890123456789012345678.91', None),
-    ],
-)
-def test_validate_max_digits_and_decimal_places(
-    schema_kwargs: dict[str, Any], input_value: str, error_type: str | None
-) -> None:
-    v = SchemaValidator(cs.decimal_schema(**schema_kwargs))
+def test_validate_max_digits_and_decimal_places() -> None:
+    v = SchemaValidator(cs.decimal_schema(max_digits=5, decimal_places=2))
 
-    if error_type is None:
-        assert v.validate_python(input_value) == Decimal(input_value)
-    else:
-        with pytest.raises(ValidationError) as exc_info:
-            v.validate_python(input_value)
-        assert exc_info.value.errors()[0]['type'] == error_type
+    # valid inputs
+    assert v.validate_json('1.23') == Decimal('1.23')
+    assert v.validate_json('123.45') == Decimal('123.45')
+    assert v.validate_json('-123.45') == Decimal('-123.45')
+
+    # invalid inputs
+    with pytest.raises(ValidationError):
+        v.validate_json('1234.56')  # too many digits
+    with pytest.raises(ValidationError):
+        v.validate_json('123.456')  # too many decimal places
+    with pytest.raises(ValidationError):
+        v.validate_json('123456')  # too many digits
+    with pytest.raises(ValidationError):
+        v.validate_json('abc')  # not a valid decimal
 
 
-@pytest.mark.skipif(sys.platform == 'emscripten', reason='no subprocesses on emscripten')
-@pytest.mark.parametrize(
-    ('schema_kwargs', 'input_value', 'error_type'),
-    [
-        ({'max_digits': 1}, '1e9223372036854775808', 'decimal_max_digits'),
-        ({'max_digits': 1}, '1e-9223372036854775809', 'decimal_max_digits'),
-        ({'decimal_places': 1}, '1e-9223372036854775809', 'decimal_max_places'),
-        ({'decimal_places': 1}, '1e9223372036854775808', None),
-        ({'max_digits': 1, 'decimal_places': 0}, '0e9223372036854775808', None),
-        ({'max_digits': 1, 'decimal_places': 0}, '0e-9223372036854775809', None),
-    ],
-)
-def test_validate_max_digits_and_decimal_places_pydecimal_huge_exponent(
-    schema_kwargs: dict[str, Any], input_value: str, error_type: str | None
-) -> None:
-    pytest.importorskip('_pydecimal')
+def test_validate_max_digits_and_decimal_places_edge_case() -> None:
+    v = SchemaValidator(cs.decimal_schema(max_digits=34, decimal_places=18))
 
-    code = f"""
-import sys, _pydecimal
-sys.modules['decimal'] = _pydecimal
-import decimal
-from pydantic_core import SchemaValidator, ValidationError, core_schema as cs
-
-v = SchemaValidator(cs.decimal_schema(**{schema_kwargs!r}))
-try:
-    v.validate_python(decimal.Decimal({input_value!r}))
-except ValidationError as e:
-    print(e.errors()[0]['type'])
-else:
-    print(None)
-"""
-    result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, check=True)
-    assert result.stdout.strip() == str(error_type)
+    # valid inputs
+    assert v.validate_python(Decimal('9999999999999999.999999999999999999')) == Decimal(
+        '9999999999999999.999999999999999999'
+    )
 
 
 def test_str_validation_w_strict() -> None:

@@ -76,8 +76,6 @@ const GUARD_OFFSET: u8 = if cfg!(debug_assertions) {
     // on macos 3.14 the stack size seems to be a bit smaller again
     if cfg!(all(target_os = "macos", Py_3_14)) {
         100
-    } else if cfg!(all(windows, not(PyPy))) {
-        50
     } else {
         20
     }
@@ -129,11 +127,6 @@ impl RecursionState {
         } else {
             true
         }
-    }
-
-    /// Whether increasing the depth (`incr_depth()`) would exceed the limit.
-    pub fn at_depth_limit(&self) -> bool {
-        self.depth >= RECURSION_GUARD_LIMIT
     }
 
     pub fn decr_depth(&mut self) {

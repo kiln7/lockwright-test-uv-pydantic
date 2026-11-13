@@ -1,4 +1,8 @@
-"""Plugin interface for Pydantic plugins, and related types."""
+"""!!! abstract "Usage Documentation"
+    [Build a Plugin](../concepts/plugins.md#build-a-plugin)
+
+Plugin interface for Pydantic plugins, and related types.
+"""
 
 from __future__ import annotations
 

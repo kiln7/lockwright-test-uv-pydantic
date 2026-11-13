@@ -2,12 +2,16 @@ use pyo3::exceptions::PyNotImplementedError;
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
 use pyo3::types::{PyDict, PyTuple};
-use pyo3::{PyTraverseError, PyVisit};
 
-use crate::py_gc::PyGcTraverse;
 use crate::tools::safe_repr;
 
-#[pyclass(module = "pydantic_core._pydantic_core", get_all, frozen, freelist = 100)]
+#[pyclass(
+    module = "pydantic_core._pydantic_core",
+    get_all,
+    frozen,
+    freelist = 100,
+    skip_from_py_object
+)]
 #[derive(Debug, Clone)]
 pub struct ArgsKwargs {
     pub(crate) args: Py<PyTuple>,
@@ -16,11 +20,6 @@ pub struct ArgsKwargs {
 
 #[pymethods]
 impl ArgsKwargs {
-    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        self.args.py_gc_traverse(&visit)?;
-        self.kwargs.py_gc_traverse(&visit)
-    }
-
     #[new]
     #[pyo3(signature = (args, kwargs = None))]
     fn py_new(args: Bound<'_, PyTuple>, kwargs: Option<Bound<'_, PyDict>>) -> Self {

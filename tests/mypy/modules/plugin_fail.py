@@ -1,11 +1,11 @@
 from typing import Generic, Optional, Set, TypeVar, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Extra, Field, field_validator
 from pydantic.dataclasses import dataclass
 
 
 class Model(BaseModel):
-    model_config = ConfigDict(alias_generator=None, frozen=True, extra='forbid')
+    model_config = ConfigDict(alias_generator=None, frozen=True, extra=Extra.forbid)
     x: int
     y: str
 
@@ -16,9 +16,10 @@ class Model(BaseModel):
 model = Model(x=1, y='y', z='z')
 model = Model(x=1)
 model.y = 'a'
+Model.from_orm({})
 
 
-class KwargsModel(BaseModel, alias_generator=None, frozen=True, extra='forbid'):
+class KwargsModel(BaseModel, alias_generator=None, frozen=True, extra=Extra.forbid):
     x: int
     y: str
 
@@ -29,10 +30,11 @@ class KwargsModel(BaseModel, alias_generator=None, frozen=True, extra='forbid'):
 kwargs_model = KwargsModel(x=1, y='y', z='z')
 kwargs_model = KwargsModel(x=1)
 kwargs_model.y = 'a'
+KwargsModel.from_orm({})
 
 
 class ForbidExtraModel(BaseModel):
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra=Extra.forbid)
 
 
 ForbidExtraModel(x=1)
@@ -54,18 +56,18 @@ class KwargsBadExtraModel(BaseModel, extra=1):
 
 
 class BadConfig1(BaseModel):
-    model_config = ConfigDict(frozen={})  # type: ignore[typeddict-item]
+    model_config = ConfigDict(from_attributes={})  # type: ignore[typeddict-item]
 
 
-class KwargsBadConfig1(BaseModel, frozen={}):
+class KwargsBadConfig1(BaseModel, from_attributes={}):
     pass
 
 
 class BadConfig2(BaseModel):
-    model_config = ConfigDict(frozen=list)  # type: ignore[typeddict-item]
+    model_config = ConfigDict(from_attributes=list)  # type: ignore[typeddict-item]
 
 
-class KwargsBadConfig2(BaseModel, frozen=list):
+class KwargsBadConfig2(BaseModel, from_attributes=list):
     pass
 
 
@@ -211,6 +213,14 @@ KwargsAliasGeneratorModel2(x=1)
 KwargsAliasGeneratorModel2(y=1, z=1)
 
 
+class CoverageTester(Missing):  # noqa F821
+    def from_orm(self) -> None:
+        pass
+
+
+CoverageTester().from_orm()
+
+
 @dataclass(config={})
 class AddProject:
     name: str
@@ -226,7 +236,7 @@ class FrozenModel(BaseModel):
     x: int
     y: str
 
-    model_config = ConfigDict(alias_generator=None, frozen=True, extra='forbid')
+    model_config = ConfigDict(alias_generator=None, frozen=True, extra=Extra.forbid)
 
 
 frozenmodel = FrozenModel(x=1, y='b')

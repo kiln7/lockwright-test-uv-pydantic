@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import date, time
-from enum import IntEnum, StrEnum
+from enum import Enum, IntEnum
 from itertools import permutations
 from typing import Any
 from uuid import UUID
@@ -61,13 +61,12 @@ class TestModelClass:
         pass
 
     @pytest.fixture(scope='class')
-    @classmethod
-    def schema_validator(cls) -> SchemaValidator:
+    def schema_validator(self) -> SchemaValidator:
         return SchemaValidator(
             schema=core_schema.union_schema(
                 choices=[
                     core_schema.model_schema(
-                        cls=cls.ModelA,
+                        cls=self.ModelA,
                         schema=core_schema.model_fields_schema(
                             fields={
                                 'a': core_schema.model_field(schema=core_schema.int_schema()),
@@ -76,7 +75,7 @@ class TestModelClass:
                         ),
                     ),
                     core_schema.model_schema(
-                        cls=cls.ModelB,
+                        cls=self.ModelB,
                         schema=core_schema.model_fields_schema(
                             fields={
                                 'c': core_schema.model_field(schema=core_schema.int_schema()),
@@ -125,13 +124,12 @@ class TestModelClassSimilar:
         pass
 
     @pytest.fixture(scope='class')
-    @classmethod
-    def schema_validator(cls) -> SchemaValidator:
+    def schema_validator(self) -> SchemaValidator:
         return SchemaValidator(
             schema=core_schema.union_schema(
                 choices=[
                     core_schema.model_schema(
-                        cls=cls.ModelA,
+                        cls=self.ModelA,
                         schema=core_schema.model_fields_schema(
                             fields={
                                 'a': core_schema.model_field(schema=core_schema.int_schema()),
@@ -140,7 +138,7 @@ class TestModelClassSimilar:
                         ),
                     ),
                     core_schema.model_schema(
-                        cls=cls.ModelB,
+                        cls=self.ModelB,
                         schema=core_schema.model_fields_schema(
                             fields={
                                 'a': core_schema.model_field(schema=core_schema.int_schema()),
@@ -408,7 +406,7 @@ def test_strict_reference():
         core_schema.definitions_schema(
             core_schema.definition_reference_schema(schema_ref='tuple-ref'),
             [
-                core_schema.tuple_schema(
+                core_schema.tuple_positional_schema(
                     [
                         core_schema.float_schema(),
                         core_schema.union_schema(
@@ -518,7 +516,7 @@ def test_union_function_before_called_once():
     # See https://github.com/pydantic/pydantic/issues/6830 - in particular the
     # smart union validator used to call `remove_prefix` twice, which is not
     # ideal from a user perspective.
-    class SpecialValues(StrEnum):
+    class SpecialValues(str, Enum):
         DEFAULT = 'default'
         OTHER = 'other'
 

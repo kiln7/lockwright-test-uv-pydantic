@@ -1,3 +1,4 @@
+import importlib.metadata as importlib_metadata
 import warnings
 from unittest.mock import patch
 
@@ -26,13 +27,11 @@ class EntryPointWithError:
         raise ImportError('Test simulated exception')
 
 
-def mock_entry_points(*entry_points):
-    """Patch `entry_points()` to return the given entry points, filtered by group like the real implementation."""
+class Dist:
+    entry_points = []
 
-    def _entry_points(*, group):
-        return [ep for ep in entry_points if ep.group == group]
-
-    return patch.object(loader, 'entry_points', _entry_points)
+    def __init__(self, entry_points):
+        self.entry_points = entry_points
 
 
 @pytest.fixture
@@ -51,8 +50,9 @@ def mock():
     mock_entry_2 = EntryPoint(name='test_plugin2', value='test_plugin:plugin2', group='pydantic')
     mock_entry_3 = EntryPoint(name='test_plugin3', value='test_plugin:plugin3', group='pydantic')
     mock_entry_4 = EntryPoint(name='test_plugin4', value='test_plugin:plugin4', group='non_pydantic')
+    mock_dist = Dist([mock_entry_1, mock_entry_2, mock_entry_3, mock_entry_4])
 
-    with mock_entry_points(mock_entry_1, mock_entry_2, mock_entry_3, mock_entry_4):
+    with patch.object(importlib_metadata, 'distributions', return_value=[mock_dist]):
         yield
 
 
@@ -104,10 +104,11 @@ def test_caching_of_loaded_plugins(reset_plugins, monkeypatch):
 
 def test_load_same_plugin_multiple_times(reset_plugins, monkeypatch):
     mock_entry_1 = EntryPoint(name='test_plugin1', value='test_plugin:plugin1', group='pydantic')
+    mock_dist = Dist([mock_entry_1, mock_entry_1])
 
     monkeypatch.delenv('PYDANTIC_DISABLE_PLUGINS', raising=False)
 
-    with mock_entry_points(mock_entry_1, mock_entry_1):
+    with patch.object(importlib_metadata, 'distributions', return_value=[mock_dist]):
         res = loader.get_plugins()
         assert list(res) == ['test_plugin:plugin1']
 
@@ -119,10 +120,11 @@ def test_loader_with_failing_plugin(reset_plugins, monkeypatch):
     mock_entry_1 = EntryPoint(name='test_plugin1', value='test_plugin:plugin1', group='pydantic')
     mock_entry_error = EntryPointWithError(name='test_plugin_error', value='test_plugin:error', group='pydantic')
     mock_entry_2 = EntryPoint(name='test_plugin2', value='test_plugin:plugin2', group='pydantic')
+    mock_dist = Dist([mock_entry_1, mock_entry_error, mock_entry_2])
 
     monkeypatch.delenv('PYDANTIC_DISABLE_PLUGINS', raising=False)
 
-    with mock_entry_points(mock_entry_1, mock_entry_error, mock_entry_2):
+    with patch.object(importlib_metadata, 'distributions', return_value=[mock_dist]):
         with warnings.catch_warnings(record=True) as wrn:
             warnings.simplefilter('always')
             res = loader.get_plugins()

@@ -1,7 +1,7 @@
 import json
 import re
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import pytest
@@ -31,9 +31,11 @@ def test_datetime_int(datetime_schema, data):
     try:
         if abs(data) > 20_000_000_000:
             microsecond = (data % 1000) * 1000
-            expected = datetime.fromtimestamp(data // 1000, tz=UTC).replace(tzinfo=None, microsecond=microsecond)
+            expected = datetime.fromtimestamp(data // 1000, tz=timezone.utc).replace(
+                tzinfo=None, microsecond=microsecond
+            )
         else:
-            expected = datetime.fromtimestamp(data, tz=UTC).replace(tzinfo=None)
+            expected = datetime.fromtimestamp(data, tz=timezone.utc).replace(tzinfo=None)
     except OverflowError:
         pytest.skip('OverflowError, see pyodide/pyodide#2841, this can happen on 32-bit systems')
     else:

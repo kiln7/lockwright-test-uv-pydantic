@@ -21,6 +21,6 @@ class Square(BaseModel):
 
 sq = Square(side=10)
 y = 12.4 + sq.area
-z = 'x' + sq.area  # type: ignore[operator]  # pyright: ignore[reportOperatorIssue]  # pyrefly: ignore[unsupported-operation]
+z = 'x' + sq.area  # type: ignore[operator]  # pyright: ignore[reportOperatorIssue]
 y_cached = 12.4 + sq.area_cached
-z_cached = 'x' + sq.area_cached  # type: ignore[operator]  # pyright: ignore[reportOperatorIssue]  # pyrefly: ignore[unsupported-operation]
+z_cached = 'x' + sq.area_cached  # type: ignore[operator]  # pyright: ignore[reportOperatorIssue]

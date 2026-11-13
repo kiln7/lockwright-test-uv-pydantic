@@ -11,8 +11,15 @@ use crate::errors::{ErrorTypeDefaults, ValError, ValResult};
 use super::{EitherFloat, EitherInt, Input};
 static ENUM_META_OBJECT: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
 
-pub fn get_enum_meta_object(py: Python<'_>) -> PyResult<&Bound<'_, PyAny>> {
-    ENUM_META_OBJECT.import(py, "enum", "EnumMeta")
+pub fn get_enum_meta_object(py: Python<'_>) -> &Bound<'_, PyAny> {
+    ENUM_META_OBJECT
+        .get_or_init(py, || {
+            py.import(intern!(py, "enum"))
+                .and_then(|enum_module| enum_module.getattr(intern!(py, "EnumMeta")))
+                .unwrap()
+                .into()
+        })
+        .bind(py)
 }
 
 pub fn str_as_bool<'py>(input: &(impl Input<'py> + ?Sized), str: &str) -> ValResult<bool> {
@@ -170,8 +177,8 @@ fn strip_leading_zeros(s: &str) -> Option<&str> {
     match char_iter.next() {
         // if we get a leading zero we continue
         Some((_, '0')) => (),
-        // if we get another digit we return the whole string
-        Some((_, c)) if ('1'..='9').contains(&c) => return Some(s),
+        // if we get another digit or unary minus we return the whole string
+        Some((_, c)) if ('1'..='9').contains(&c) || c == '-' => return Some(s),
         // anything else is invalid, we return None
         _ => return None,
     }
@@ -179,8 +186,8 @@ fn strip_leading_zeros(s: &str) -> Option<&str> {
         match c {
             // continue on more leading zeros or if we get an underscore we continue - we're "within the number"
             '0' | '_' => (),
-            // any other digit we return the rest of the string
-            '1'..='9' => return Some(&s[i..]),
+            // any other digit or unary minus we return the rest of the string
+            '1'..='9' | '-' => return Some(&s[i..]),
             // if we get a dot we return the rest of the string but include the last zero
             '.' => return Some(&s[(i - 1)..]),
             // anything else is invalid, we return None
@@ -221,17 +228,22 @@ pub fn decimal_as_int<'py>(
     Ok(EitherInt::Py(numerator))
 }
 
-pub fn fraction_as_int<'py>(
-    input: &(impl Input<'py> + ?Sized),
-    fraction: &Bound<'py, PyAny>,
-) -> ValResult<EitherInt<'py>> {
-    let py = fraction.py();
+pub fn fraction_as_int<'py>(input: &Bound<'py, PyAny>) -> ValResult<EitherInt<'py>> {
+    #[cfg(Py_3_12)]
+    let is_integer = input.call_method0("is_integer")?.extract::<bool>()?;
+    #[cfg(not(Py_3_12))]
+    let is_integer = input.getattr("denominator")?.extract::<i64>().is_ok_and(|d| d == 1);
 
-    let (numerator, denominator) = fraction
-        .call_method0(intern!(py, "as_integer_ratio"))?
-        .extract::<(Bound<'_, PyAny>, Bound<'_, PyAny>)>()?;
-    if denominator.extract::<i64>().map_or(true, |d| d != 1) {
-        return Err(ValError::new(ErrorTypeDefaults::IntFromFloat, input));
+    if is_integer {
+        #[cfg(Py_3_11)]
+        let as_int = input.call_method0("__int__");
+        #[cfg(not(Py_3_11))]
+        let as_int = input.call_method0("__trunc__");
+        match as_int {
+            Ok(i) => Ok(EitherInt::Py(i.as_any().to_owned())),
+            Err(_) => Err(ValError::new(ErrorTypeDefaults::IntType, input)),
+        }
+    } else {
+        Err(ValError::new(ErrorTypeDefaults::IntFromFloat, input))
     }
-    Ok(EitherInt::Py(numerator))
 }

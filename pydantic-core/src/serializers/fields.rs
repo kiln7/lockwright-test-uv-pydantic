@@ -35,10 +35,7 @@ pub(super) struct SerField {
     pub serialization_exclude_if: Option<Py<PyAny>>,
 }
 
-impl_py_gc_traverse!(SerField {
-    serializer,
-    serialization_exclude_if
-});
+impl_py_gc_traverse!(SerField { serializer });
 
 impl SerField {
     pub fn new(
@@ -105,39 +102,10 @@ pub(super) enum FieldsMode {
     TypedDictAllow,
 }
 
-/// The fields of a `GeneralFieldsSerializer`, in schema order and indexed by name.
-#[derive(Debug, Default)]
-pub(super) struct SerFields {
-    fields: Vec<SerField>,
-    by_name: AHashMap<PyBackedStr, usize>,
-}
-
-impl_py_gc_traverse!(SerFields { fields });
-
-impl SerFields {
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            fields: Vec::with_capacity(capacity),
-            by_name: AHashMap::with_capacity(capacity),
-        }
-    }
-
-    /// Add a field, replacing any existing field with the same name.
-    pub fn insert(&mut self, key: PyBackedStr, field: SerField) {
-        match self.by_name.get(&key) {
-            Some(&index) => self.fields[index] = field,
-            None => {
-                self.by_name.insert(key, self.fields.len());
-                self.fields.push(field);
-            }
-        }
-    }
-}
-
 /// General purpose serializer for fields - used by dataclasses, models and typed_dicts
 #[derive(Debug)]
 pub struct GeneralFieldsSerializer {
-    fields: SerFields,
+    fields: AHashMap<PyBackedStr, SerField>,
     computed_fields: Option<ComputedFields>,
     mode: FieldsMode,
     extra_serializer: Option<Arc<CombinedSerializer>>,
@@ -146,20 +114,14 @@ pub struct GeneralFieldsSerializer {
     required_fields: usize,
 }
 
-impl_py_gc_traverse!(GeneralFieldsSerializer {
-    fields,
-    computed_fields,
-    extra_serializer,
-});
-
 impl GeneralFieldsSerializer {
     pub(super) fn new(
-        fields: SerFields,
+        fields: AHashMap<PyBackedStr, SerField>,
         mode: FieldsMode,
         extra_serializer: Option<Arc<CombinedSerializer>>,
         computed_fields: Option<ComputedFields>,
     ) -> Self {
-        let required_fields = fields.fields.iter().filter(|f| f.required).count();
+        let required_fields = fields.values().filter(|f| f.required).count();
         Self {
             fields,
             mode,
@@ -216,7 +178,7 @@ impl GeneralFieldsSerializer {
         let py = model.py();
         let mut map = do_serialize.serialize_map()?;
         let mut used_req_fields: usize = 0;
-        let missing_sentinel = get_missing_sentinel_object(py)?;
+        let missing_sentinel = get_missing_sentinel_object(py);
 
         let extras_serializer = self
             .extra_serializer
@@ -225,27 +187,13 @@ impl GeneralFieldsSerializer {
             .filter(|_| !state.extra.serialize_as_any)
             .unwrap_or_else(|| AnySerializer::get());
 
-        // The keys are usually the field names of the schema (the same `str` objects), in schema order,
-        // so check if the key is the next expected field name before looking it up by name (which costs a string hash per field).
-        let mut next_index = 0;
         for result in main_iter {
             let (key, value) = result?;
-            let (op_field, key_str) = match self.fields.fields.get(next_index) {
-                Some(field) if field.key.as_py_str().as_ptr() == key.as_ptr() => {
-                    next_index += 1;
-                    (Some(field), field.key.clone_ref(py))
-                }
-                _ => {
-                    let key_str: PyBackedStr = key.extract()?;
-                    let op_field = self.fields.by_name.get(&key_str).map(|&index| {
-                        next_index = index + 1;
-                        &self.fields.fields[index]
-                    });
-                    (op_field, key_str)
-                }
-            };
+            let key_str: PyBackedStr = key.extract()?;
 
-            if let Some(field) = op_field {
+            let state = &mut state.scoped_set_field_name(Some(key_str.as_py_str().bind(py).clone()));
+
+            if let Some(field) = self.fields.get(&*key_str) {
                 if field.required {
                     used_req_fields += 1;
                 }
@@ -257,11 +205,9 @@ impl GeneralFieldsSerializer {
                     continue;
                 };
 
-                let state = &mut state.scoped_set_field_name(Some(key_str.as_py_str().bind(py).clone()));
                 let state = &mut state.scoped_include_exclude(next_include_exclude);
                 map.serialize_entry_string_key(field.get_key(&state.extra), &value, serializer, state)?;
             } else if self.mode == FieldsMode::TypedDictAllow {
-                let state = &mut state.scoped_set_field_name(Some(key_str.as_py_str().bind(py).clone()));
                 self.serialize_extra(&key_str, &value, state, missing_sentinel, extras_serializer, &mut map)?;
             } else if state.check == SerCheck::Strict {
                 return Err(unexpected_field(&key_str, model).into());
@@ -388,6 +334,11 @@ pub fn exclude_field_by_value<'py>(
 
     Ok(false)
 }
+
+impl_py_gc_traverse!(GeneralFieldsSerializer {
+    fields,
+    computed_fields
+});
 
 impl TypeSerializer for GeneralFieldsSerializer {
     fn to_python<'py>(&self, value: &Bound<'py, PyAny>, state: &mut SerializationState<'py>) -> PyResult<Py<PyAny>> {

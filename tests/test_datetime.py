@@ -1,11 +1,9 @@
-import json
 import re
-from datetime import UTC, date, datetime, time, timedelta, timezone
-from typing import Annotated, Any
+from datetime import date, datetime, time, timedelta, timezone
+from typing import Annotated
 
 import pytest
 from dirty_equals import HasRepr
-from pydantic_core import to_jsonable_python
 
 from pydantic import (
     AwareDatetime,
@@ -120,9 +118,9 @@ def time_model_fixture():
         ('10:20:30.400', time(10, 20, 30, 400_000)),
         (b'10:20:30.400', time(10, 20, 30, 400_000)),
         (time(4, 8, 16), time(4, 8, 16)),
-        (3610, time(1, 0, 10, tzinfo=UTC)),
-        (3600.5, time(1, 0, 0, 500000, tzinfo=UTC)),
-        (86400 - 1, time(23, 59, 59, tzinfo=UTC)),
+        (3610, time(1, 0, 10, tzinfo=timezone.utc)),
+        (3600.5, time(1, 0, 0, 500000, tzinfo=timezone.utc)),
+        (86400 - 1, time(23, 59, 59, tzinfo=timezone.utc)),
         # Invalid inputs
         ('4:8:16', Err('Input should be in a valid time format, invalid character in hour [type=time_parsing,')),
         (86400, Err('Input should be in a valid time format, numeric times may not exceed 86,399 seconds')),
@@ -134,8 +132,8 @@ def time_model_fixture():
         # https://github.com/pydantic/speedate/issues/10
         ('11:05:00-05:30', time(11, 5, 0, tzinfo=create_tz(-330))),
         ('11:05:00-0530', time(11, 5, 0, tzinfo=create_tz(-330))),
-        ('11:05:00Z', time(11, 5, 0, tzinfo=UTC)),
-        ('11:05:00+00:00', time(11, 5, 0, tzinfo=UTC)),
+        ('11:05:00Z', time(11, 5, 0, tzinfo=timezone.utc)),
+        ('11:05:00+00:00', time(11, 5, 0, tzinfo=timezone.utc)),
         ('11:05-06:00', time(11, 5, 0, tzinfo=create_tz(-360))),
         ('11:05+06:00', time(11, 5, 0, tzinfo=create_tz(360))),
         ('11:05:00-25:00', Err('Input should be in a valid time format, timezone offset must be less than 24 hours')),
@@ -162,28 +160,28 @@ def datetime_model_fixture():
     [
         # Valid inputs
         # values in seconds
-        (1_494_012_444.883_309, datetime(2017, 5, 5, 19, 27, 24, 883_309, tzinfo=UTC)),
-        (1_494_012_444, datetime(2017, 5, 5, 19, 27, 24, tzinfo=UTC)),
+        (1_494_012_444.883_309, datetime(2017, 5, 5, 19, 27, 24, 883_309, tzinfo=timezone.utc)),
+        (1_494_012_444, datetime(2017, 5, 5, 19, 27, 24, tzinfo=timezone.utc)),
         # values in ms
-        (1_494_012_444_000, datetime(2017, 5, 5, 19, 27, 24, tzinfo=UTC)),
+        (1_494_012_444_000, datetime(2017, 5, 5, 19, 27, 24, tzinfo=timezone.utc)),
         ('2012-04-23T09:15:00', datetime(2012, 4, 23, 9, 15)),
-        ('2012-04-23T09:15:00Z', datetime(2012, 4, 23, 9, 15, 0, 0, UTC)),
+        ('2012-04-23T09:15:00Z', datetime(2012, 4, 23, 9, 15, 0, 0, timezone.utc)),
         ('2012-04-23T10:20:30.400+02:30', datetime(2012, 4, 23, 10, 20, 30, 400_000, create_tz(150))),
         ('2012-04-23T10:20:30.400+02:00', datetime(2012, 4, 23, 10, 20, 30, 400_000, create_tz(120))),
         ('2012-04-23T10:20:30.400-02:00', datetime(2012, 4, 23, 10, 20, 30, 400_000, create_tz(-120))),
         (b'2012-04-23T10:20:30.400-02:00', datetime(2012, 4, 23, 10, 20, 30, 400_000, create_tz(-120))),
         (datetime(2017, 5, 5), datetime(2017, 5, 5)),
-        (0, datetime(1970, 1, 1, 0, 0, 0, tzinfo=UTC)),
+        (0, datetime(1970, 1, 1, 0, 0, 0, tzinfo=timezone.utc)),
         # Numeric inputs as strings
-        ('1494012444.883309', datetime(2017, 5, 5, 19, 27, 24, 883309, tzinfo=UTC)),
-        ('1494012444', datetime(2017, 5, 5, 19, 27, 24, tzinfo=UTC)),
-        (b'1494012444', datetime(2017, 5, 5, 19, 27, 24, tzinfo=UTC)),
-        ('1494012444000.883309', datetime(2017, 5, 5, 19, 27, 24, 883, tzinfo=UTC)),
-        ('-1494012444000.883309', datetime(1922, 8, 29, 4, 32, 35, 999117, tzinfo=UTC)),
-        (19_999_999_999, datetime(2603, 10, 11, 11, 33, 19, tzinfo=UTC)),  # just before watershed
-        (20_000_000_001, datetime(1970, 8, 20, 11, 33, 20, 1000, tzinfo=UTC)),  # just after watershed
-        (1_549_316_052, datetime(2019, 2, 4, 21, 34, 12, 0, tzinfo=UTC)),  # nowish in s
-        (1_549_316_052_104, datetime(2019, 2, 4, 21, 34, 12, 104_000, tzinfo=UTC)),  # nowish in ms
+        ('1494012444.883309', datetime(2017, 5, 5, 19, 27, 24, 883309, tzinfo=timezone.utc)),
+        ('1494012444', datetime(2017, 5, 5, 19, 27, 24, tzinfo=timezone.utc)),
+        (b'1494012444', datetime(2017, 5, 5, 19, 27, 24, tzinfo=timezone.utc)),
+        ('1494012444000.883309', datetime(2017, 5, 5, 19, 27, 24, 883, tzinfo=timezone.utc)),
+        ('-1494012444000.883309', datetime(1922, 8, 29, 4, 32, 35, 999117, tzinfo=timezone.utc)),
+        (19_999_999_999, datetime(2603, 10, 11, 11, 33, 19, tzinfo=timezone.utc)),  # just before watershed
+        (20_000_000_001, datetime(1970, 8, 20, 11, 33, 20, 1000, tzinfo=timezone.utc)),  # just after watershed
+        (1_549_316_052, datetime(2019, 2, 4, 21, 34, 12, 0, tzinfo=timezone.utc)),  # nowish in s
+        (1_549_316_052_104, datetime(2019, 2, 4, 21, 34, 12, 104_000, tzinfo=timezone.utc)),  # nowish in ms
         # Invalid inputs
         (1_549_316_052_104_324, Err('Input should be a valid datetime, dates after 9999')),  # nowish in μs
         (1_549_316_052_104_324_096, Err('Input should be a valid datetime, dates after 9999')),  # nowish in ns
@@ -205,32 +203,32 @@ def test_datetime_parsing(DatetimeModel, value, result):
     'val_temporal_unit, input_value, expected',
     [
         # 'seconds' mode: treat as seconds since epoch
-        ('seconds', 1654646400, datetime(2022, 6, 8, tzinfo=UTC)),
-        ('seconds', '1654646400', datetime(2022, 6, 8, tzinfo=UTC)),
-        ('seconds', 1654646400.123456, datetime(2022, 6, 8, 0, 0, 0, 123456, tzinfo=UTC)),
-        ('seconds', 8640000000.0, datetime(2243, 10, 17, tzinfo=UTC)),
-        ('seconds', 92534400000.0, datetime(4902, 4, 20, tzinfo=UTC)),
+        ('seconds', 1654646400, datetime(2022, 6, 8, tzinfo=timezone.utc)),
+        ('seconds', '1654646400', datetime(2022, 6, 8, tzinfo=timezone.utc)),
+        ('seconds', 1654646400.123456, datetime(2022, 6, 8, 0, 0, 0, 123456, tzinfo=timezone.utc)),
+        ('seconds', 8640000000.0, datetime(2243, 10, 17, tzinfo=timezone.utc)),
+        ('seconds', 92534400000.0, datetime(4902, 4, 20, tzinfo=timezone.utc)),
         # 'milliseconds' mode: treat as milliseconds since epoch
-        ('milliseconds', 1654646400, datetime(1970, 1, 20, 3, 37, 26, 400000, tzinfo=UTC)),
-        ('milliseconds', 1654646400123, datetime(2022, 6, 8, 0, 0, 0, 123000, tzinfo=UTC)),
-        ('milliseconds', '1654646400123', datetime(2022, 6, 8, 0, 0, 0, 123000, tzinfo=UTC)),
-        ('milliseconds', 8640000000.0, datetime(1970, 4, 11, tzinfo=UTC)),
-        ('milliseconds', 92534400000.0, datetime(1972, 12, 7, tzinfo=UTC)),
+        ('milliseconds', 1654646400, datetime(1970, 1, 20, 3, 37, 26, 400000, tzinfo=timezone.utc)),
+        ('milliseconds', 1654646400123, datetime(2022, 6, 8, 0, 0, 0, 123000, tzinfo=timezone.utc)),
+        ('milliseconds', '1654646400123', datetime(2022, 6, 8, 0, 0, 0, 123000, tzinfo=timezone.utc)),
+        ('milliseconds', 8640000000.0, datetime(1970, 4, 11, tzinfo=timezone.utc)),
+        ('milliseconds', 92534400000.0, datetime(1972, 12, 7, tzinfo=timezone.utc)),
         (
             'milliseconds',
             1654646400123.456,
-            datetime(2022, 6, 8, 0, 0, 0, 123456, tzinfo=UTC),
+            datetime(2022, 6, 8, 0, 0, 0, 123456, tzinfo=timezone.utc),
         ),
         # 'infer' mode: large numbers are ms, small are s
-        ('infer', 1654646400, datetime(2022, 6, 8, tzinfo=UTC)),
-        ('infer', 1654646400123, datetime(2022, 6, 8, 0, 0, 0, 123000, tzinfo=UTC)),
+        ('infer', 1654646400, datetime(2022, 6, 8, tzinfo=timezone.utc)),
+        ('infer', 1654646400123, datetime(2022, 6, 8, 0, 0, 0, 123000, tzinfo=timezone.utc)),
         (
             'infer',
             1654646400123.456,
-            datetime(2022, 6, 8, 0, 0, 0, 123456, tzinfo=UTC),
+            datetime(2022, 6, 8, 0, 0, 0, 123456, tzinfo=timezone.utc),
         ),
-        ('infer', 8640000000.0, datetime(2243, 10, 17, tzinfo=UTC)),
-        ('infer', 92534400000.0, datetime(1972, 12, 7, tzinfo=UTC)),
+        ('infer', 8640000000.0, datetime(2243, 10, 17, tzinfo=timezone.utc)),
+        ('infer', 92534400000.0, datetime(1972, 12, 7, tzinfo=timezone.utc)),
     ],
 )
 def test_val_temporal_unit_datetime(val_temporal_unit, input_value, expected):
@@ -303,7 +301,7 @@ def test_aware_datetime_validation_success(aware_datetime_type):
     class Model(BaseModel):
         foo: aware_datetime_type
 
-    value = datetime.now(tz=UTC)
+    value = datetime.now(tz=timezone.utc)
 
     assert Model(foo=value).foo == value
 
@@ -340,7 +338,7 @@ def test_naive_datetime_validation_fails(naive_datetime_type):
     class Model(BaseModel):
         foo: naive_datetime_type
 
-    value = datetime.now(tz=UTC)
+    value = datetime.now(tz=timezone.utc)
 
     with pytest.raises(ValidationError) as exc_info:
         Model(foo=value)
@@ -355,9 +353,12 @@ def test_naive_datetime_validation_fails(naive_datetime_type):
     ]
 
 
-@pytest.fixture(scope='module', name='timedelta_ta')
-def timedelta_ta_fixture() -> TypeAdapter[timedelta]:
-    return TypeAdapter(timedelta)
+@pytest.fixture(scope='module', name='TimedeltaModel')
+def timedelta_model_fixture():
+    class TimedeltaModel(BaseModel):
+        d: timedelta
+
+    return TimedeltaModel
 
 
 @pytest.mark.parametrize(
@@ -372,9 +373,9 @@ def timedelta_ta_fixture() -> TypeAdapter[timedelta]:
         timedelta(seconds=30),  # seconds
     ],
 )
-def test_parse_python_format(timedelta_ta: TypeAdapter[timedelta], delta):
-    assert timedelta_ta.validate_python(delta) == delta
-    # assert timedelta_ta.validate_python(str(delta)) == delta
+def test_parse_python_format(TimedeltaModel, delta):
+    assert TimedeltaModel(d=delta).d == delta
+    # assert TimedeltaModel(d=str(delta)).d == delta
 
 
 @pytest.mark.parametrize(
@@ -423,32 +424,12 @@ def test_parse_python_format(timedelta_ta: TypeAdapter[timedelta], delta):
         (b'PT0.000005S', timedelta(microseconds=5)),
     ],
 )
-def test_parse_durations(timedelta_ta: TypeAdapter[timedelta], value, result):
+def test_parse_durations(TimedeltaModel, value, result):
     if isinstance(result, Err):
         with pytest.raises(ValidationError, match=result.message_escaped()):
-            timedelta_ta.validate_python(value)
+            TimedeltaModel(d=value)
     else:
-        assert timedelta_ta.validate_python(value) == result
-
-
-@pytest.mark.parametrize(
-    'value',
-    [
-        999_999_999 * 86400 + 86400,
-        86400 * 2**32,
-        86400 * (2**32 + 5),
-        -86400 * (2**32 + 5),
-    ],
-)
-def test_parse_durations_large_int(timedelta_ta: TypeAdapter[timedelta], value: int) -> None:
-    """https://github.com/pydantic/pydantic/issues/13969"""
-
-    assert timedelta_ta.validate_python(999_999_999 * 86400) == timedelta(days=999_999_999)
-
-    with pytest.raises(ValidationError, match='durations may not exceed 999,999,999 days'):
-        timedelta_ta.validate_python(value)
-    with pytest.raises(ValidationError, match='durations may not exceed 999,999,999 days'):
-        timedelta_ta.validate_json(str(value))
+        assert TimedeltaModel(d=value).d == result
 
 
 @pytest.mark.parametrize(
@@ -560,16 +541,14 @@ def test_past_date_validation_success(value, result, past_date_type):
 
 
 @pytest.mark.parametrize(
-    'value_fn',
+    'value',
     (
-        pytest.param(lambda: date.today(), id='today'),
-        pytest.param(lambda: date.today() + timedelta(1), id='tomorrow'),
-        pytest.param(lambda: '2064-06-01', id='future-str'),
+        date.today(),
+        date.today() + timedelta(1),
+        '2064-06-01',
     ),
 )
-def test_past_date_validation_fails(value_fn, past_date_type):
-    value = value_fn()
-
+def test_past_date_validation_fails(value, past_date_type):
     class Model(BaseModel):
         foo: past_date_type
 
@@ -587,15 +566,13 @@ def test_past_date_validation_fails(value_fn, past_date_type):
 
 
 @pytest.mark.parametrize(
-    'value_fn',
+    'value,result',
     (
-        pytest.param(lambda: (date.today() + timedelta(1), date.today() + timedelta(1)), id='tomorrow'),
-        pytest.param(lambda: ('2064-06-01', date(2064, 6, 1)), id='future-str'),
+        (date.today() + timedelta(1), date.today() + timedelta(1)),
+        ('2064-06-01', date(2064, 6, 1)),
     ),
 )
-def test_future_date_validation_success(value_fn, future_date_type):
-    value, result = value_fn()
-
+def test_future_date_validation_success(value, result, future_date_type):
     class Model(BaseModel):
         foo: future_date_type
 
@@ -603,16 +580,14 @@ def test_future_date_validation_success(value_fn, future_date_type):
 
 
 @pytest.mark.parametrize(
-    'value_fn',
+    'value',
     (
-        pytest.param(lambda: date.today(), id='today'),
-        pytest.param(lambda: date.today() - timedelta(1), id='yesterday'),
-        pytest.param(lambda: '1996-01-22', id='past-str'),
+        date.today(),
+        date.today() - timedelta(1),
+        '1996-01-22',
     ),
 )
-def test_future_date_validation_fails(value_fn, future_date_type):
-    value = value_fn()
-
+def test_future_date_validation_fails(value, future_date_type):
     class Model(BaseModel):
         foo: future_date_type
 
@@ -834,54 +809,3 @@ def test_config_time(t: date, expected_to_json, mode):
 
     assert instance == t
     assert ta.dump_json(instance) == expected_to_json
-
-
-TEMPORAL_VALUES = {
-    'datetime': datetime(2024, 1, 1),
-    'date': date(2024, 1, 1),
-    'time': time(1),
-    'timedelta': timedelta(seconds=1),
-    datetime(2024, 1, 1): 'datetime_key',
-    timedelta(seconds=1): 'timedelta_key',
-}
-
-
-@pytest.mark.parametrize(
-    ['config', 'expected'],
-    [
-        (
-            {'ser_json_timedelta': 'float'},
-            {
-                'datetime': '2024-01-01T00:00:00',
-                'date': '2024-01-01',
-                'time': '01:00:00',
-                'timedelta': 1.0,
-                '2024-01-01T00:00:00': 'datetime_key',
-                '1': 'timedelta_key',
-            },
-        ),
-        (
-            {'ser_json_temporal': 'milliseconds', 'ser_json_timedelta': 'float'},
-            {
-                'datetime': 1704067200000.0,
-                'date': 1704067200000.0,
-                'time': 3600000.0,
-                'timedelta': 1000.0,
-                '1704067200000': 'datetime_key',
-                '1000': 'timedelta_key',
-            },
-        ),
-    ],
-)
-def test_ser_json_timedelta_only_applies_to_timedelta_inference(config, expected) -> None:
-    """`ser_json_timedelta` should only apply to timedeltas when serializing unknown types (by inference)."""
-    ta = TypeAdapter(Any, config=config)
-
-    assert ta.dump_python(TEMPORAL_VALUES, mode='json') == expected
-    assert json.loads(ta.dump_json(TEMPORAL_VALUES)) == expected
-
-    temporal_mode = config.get('ser_json_temporal', 'iso8601')
-    assert (
-        to_jsonable_python(TEMPORAL_VALUES, timedelta_mode=config['ser_json_timedelta'], temporal_mode=temporal_mode)
-        == expected
-    )

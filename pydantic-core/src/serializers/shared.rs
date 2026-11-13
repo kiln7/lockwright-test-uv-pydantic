@@ -29,6 +29,7 @@ use crate::tools::{SchemaDict, py_err};
 use super::errors::se_err_py_err;
 use super::extra::SerializationState;
 use super::infer::{infer_json_key, infer_serialize, infer_to_python};
+use super::ob_type::{IsType, ObType};
 
 pub(crate) trait BuildSerializer: Sized {
     const EXPECTED_TYPE: &'static str;
@@ -125,7 +126,6 @@ combined_serializer! {
         Bool: super::type_serializers::simple::BoolSerializer;
         Float: super::type_serializers::float::FloatSerializer;
         Decimal: super::type_serializers::decimal::DecimalSerializer;
-        Fraction: super::type_serializers::fraction::FractionSerializer;
         Str: super::type_serializers::string::StrSerializer;
         Bytes: super::type_serializers::bytes::BytesSerializer;
         Datetime: super::type_serializers::datetime_etc::DatetimeSerializer;
@@ -133,14 +133,10 @@ combined_serializer! {
         Date: super::type_serializers::datetime_etc::DateSerializer;
         Time: super::type_serializers::datetime_etc::TimeSerializer;
         List: super::type_serializers::list::ListSerializer;
-        Deque: super::type_serializers::deque::DequeSerializer;
         Set: super::type_serializers::set_frozenset::SetSerializer;
         FrozenSet: super::type_serializers::set_frozenset::FrozenSetSerializer;
         Generator: super::type_serializers::generator::GeneratorSerializer;
         Dict: super::type_serializers::dict::DictSerializer;
-        FrozenDict: super::type_serializers::frozendict::FrozenDictSerializer;
-        OrderedDict: super::type_serializers::ordered_dict::OrderedDictSerializer;
-        Counter: super::type_serializers::counter::CounterSerializer;
         Model: super::type_serializers::model::ModelSerializer;
         Dataclass: super::type_serializers::dataclass::DataclassSerializer;
         Url: super::type_serializers::url::UrlSerializer;
@@ -156,13 +152,11 @@ combined_serializer! {
         TaggedUnion: super::type_serializers::union::TaggedUnionSerializer;
         Literal: super::type_serializers::literal::LiteralSerializer;
         MissingSentinel: super::type_serializers::missing_sentinel::MissingSentinelSerializer;
-        Ellipsis: super::type_serializers::ellipsis::EllipsisSerializer;
         Enum: super::type_serializers::enum_::EnumSerializer;
         Recursive: super::type_serializers::definitions::DefinitionRefSerializer;
         Tuple: super::type_serializers::tuple::TupleSerializer;
         Complex: super::type_serializers::complex::ComplexSerializer;
         TypedDict: super::type_serializers::typed_dict::TypedDictSerializer;
-        NamedTuple: super::type_serializers::named_tuple::NamedTupleSerializer;
     }
 }
 
@@ -209,15 +203,10 @@ impl CombinedSerializer {
                 )
                 // if `schema.serialization.type` is None, fall back to `schema.type`
                 | None => (),
-                Some(_) => {
-                    // otherwise, `schema.serialization` is an arbitrary core schema (which includes the
-                    // simple `{'type': ...}` ser schemas), so build a serializer from it as if it was
-                    // the main schema (this ensures nested `serialization` schemas, prebuilt serializers
-                    // and polymorphic serialization are handled). In this case, it's an error if a
-                    // serializer isn't found.
-                    // Note that as a consequence, `function-plain`/`function-wrap` *validator* schemas can't
-                    // be used as `schema.serialization`, as they are interpreted as the function *ser* schemas.
-                    return Self::build(&ser_schema, config, definitions);
+                Some(ser_type) => {
+                    // otherwise if `schema.serialization.type` is defined, use that with `find_serializer`
+                    // instead of `schema.type`. In this case it's an error if a serializer isn't found.
+                    return Self::find_serializer(ser_type, &ser_schema, config, definitions);
                 }
             }
         }
@@ -234,7 +223,8 @@ impl CombinedSerializer {
             }
         }
 
-        Self::find_serializer(type_, schema, config, definitions)
+        let serializer = Self::find_serializer(type_, schema, config, definitions)?;
+        Self::maybe_wrap_in_polymorphism_trampoline(serializer, schema)
     }
 
     fn maybe_wrap_in_polymorphism_trampoline(
@@ -369,7 +359,6 @@ impl PyGcTraverse for CombinedSerializer {
             CombinedSerializer::Bool(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::Float(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::Decimal(inner) => inner.py_gc_traverse(visit),
-            CombinedSerializer::Fraction(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::Str(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::Bytes(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::Datetime(inner) => inner.py_gc_traverse(visit),
@@ -377,14 +366,10 @@ impl PyGcTraverse for CombinedSerializer {
             CombinedSerializer::Date(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::Time(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::List(inner) => inner.py_gc_traverse(visit),
-            CombinedSerializer::Deque(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::Set(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::FrozenSet(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::Generator(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::Dict(inner) => inner.py_gc_traverse(visit),
-            CombinedSerializer::FrozenDict(inner) => inner.py_gc_traverse(visit),
-            CombinedSerializer::OrderedDict(inner) => inner.py_gc_traverse(visit),
-            CombinedSerializer::Counter(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::Model(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::Dataclass(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::Url(inner) => inner.py_gc_traverse(visit),
@@ -399,14 +384,12 @@ impl PyGcTraverse for CombinedSerializer {
             CombinedSerializer::TaggedUnion(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::Literal(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::MissingSentinel(inner) => inner.py_gc_traverse(visit),
-            CombinedSerializer::Ellipsis(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::Enum(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::Recursive(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::Tuple(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::Uuid(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::Complex(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::TypedDict(inner) => inner.py_gc_traverse(visit),
-            CombinedSerializer::NamedTuple(inner) => inner.py_gc_traverse(visit),
             CombinedSerializer::PolymorphismTrampoline(inner) => inner.py_gc_traverse(visit),
         }
     }
@@ -428,11 +411,12 @@ pub(crate) trait TypeSerializer: Send + Sync + Debug {
         state: &mut SerializationState<'py>,
         expected_type: &'static str,
     ) -> PyResult<Cow<'a, str>> {
-        if key.is_none() {
-            py_err!(PyTypeError; "`{expected_type}` not valid as object key")
-        } else {
-            state.warn_fallback_py(self.get_name(), key)?;
-            infer_json_key(key, state)
+        match state.extra.ob_type_lookup.is_type(key, ObType::None) {
+            IsType::Exact | IsType::Subclass => py_err!(PyTypeError; "`{expected_type}` not valid as object key"),
+            IsType::False => {
+                state.warn_fallback_py(self.get_name(), key)?;
+                infer_json_key(key, state)
+            }
         }
     }
 

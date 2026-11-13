@@ -1,6 +1,5 @@
 use ahash::AHashSet;
 use pyo3::exceptions::PyValueError;
-use std::cell::OnceCell;
 use std::hash::Hash;
 
 use pyo3::exceptions::PyTypeError;
@@ -62,64 +61,6 @@ fn map_negative_indices<'py>(
 
 type NextFilters<'py> = Option<IncludeExclude<'py>>;
 
-/// The include/exclude filters for the items of one sequence.
-pub(crate) struct SequenceFilter<'a, 'py, F> {
-    filter: &'a F,
-    include: Option<Bound<'py, PyAny>>,
-    exclude: Option<Bound<'py, PyAny>>,
-    len: Option<usize>,
-    resolved: OnceCell<IncludeExclude<'py>>,
-}
-
-impl<'a, 'py, F: FilterLogic<usize>> SequenceFilter<'a, 'py, F> {
-    fn new(filter: &'a F, state: &SerializationState<'py>, len: Option<usize>) -> Self {
-        Self {
-            filter,
-            include: state.include().cloned(),
-            exclude: state.exclude().cloned(),
-            len,
-            resolved: OnceCell::new(),
-        }
-    }
-
-    /// Rebuild a filter from the values returned by [`SequenceFilter::resolved`] on a filter built
-    /// earlier, for serializers that can't keep the filter across items (e.g. a lazy iterator that
-    /// serializes one item per `__next__()` call).
-    pub fn from_resolved(filter: &'a F, resolved: IncludeExclude<'py>) -> Self {
-        Self {
-            filter,
-            include: None,
-            exclude: None,
-            len: None,
-            resolved: OnceCell::from(resolved),
-        }
-    }
-
-    /// The include/exclude values with negative indices resolved against the sequence length.
-    pub fn resolved(&self) -> PyResult<&IncludeExclude<'py>> {
-        if let Some(resolved) = self.resolved.get() {
-            return Ok(resolved);
-        }
-        let resolved = IncludeExclude::new(
-            self.include
-                .as_ref()
-                .map(|v| map_negative_indices(v, self.len))
-                .transpose()?,
-            self.exclude
-                .as_ref()
-                .map(|v| map_negative_indices(v, self.len))
-                .transpose()?,
-        );
-        Ok(self.resolved.get_or_init(|| resolved))
-    }
-
-    pub fn index_filter(&self, index: usize) -> PyResult<NextFilters<'py>> {
-        let resolved = self.resolved()?;
-        self.filter
-            .filter(index, index, resolved.include.as_ref(), resolved.exclude.as_ref())
-    }
-}
-
 impl SchemaFilter<usize> {
     pub fn from_schema(schema: &Bound<'_, PyDict>) -> PyResult<Self> {
         let py = schema.py();
@@ -152,13 +93,15 @@ impl SchemaFilter<usize> {
         }
     }
 
-    /// Build the filter for the items of a sequence of length `len` (`None` if the length is unknown).
-    pub fn for_sequence<'py>(
+    pub fn index_filter<'py>(
         &self,
+        index: usize,
         state: &SerializationState<'py>,
         len: Option<usize>,
-    ) -> SequenceFilter<'_, 'py, Self> {
-        SequenceFilter::new(self, state, len)
+    ) -> PyResult<NextFilters<'py>> {
+        let include = state.include().map(|v| map_negative_indices(v, len)).transpose()?;
+        let exclude = state.exclude().map(|v| map_negative_indices(v, len)).transpose()?;
+        self.filter(index, index, include.as_ref(), exclude.as_ref())
     }
 }
 
@@ -193,16 +136,12 @@ impl SchemaFilter<isize> {
         key: &Bound<'py, PyAny>,
         state: &SerializationState<'py>,
     ) -> PyResult<NextFilters<'py>> {
-        if self.include.is_none() && self.exclude.is_none() && state.include().is_none() && state.exclude().is_none() {
-            // nothing to filter by, which is what `filter()` would conclude (without hashing the key)
-            return Ok(Some(IncludeExclude::empty()));
-        }
         let hash = key.hash()?;
         self.filter(key, hash, state.include(), state.exclude())
     }
 }
 
-pub(crate) trait FilterLogic<T: Eq + Copy> {
+trait FilterLogic<T: Eq + Copy> {
     /// whether an `index`/`key` is explicitly included, this is combined with call-time `include` below
     fn explicit_include(&self, value: T) -> bool;
     /// default decision on whether to include the item at a given `index`/`key`
@@ -330,21 +269,19 @@ impl AnyFilter {
         key: &Bound<'py, PyAny>,
         state: &SerializationState<'py>,
     ) -> PyResult<NextFilters<'py>> {
-        if state.include().is_none() && state.exclude().is_none() {
-            // nothing to filter by, which is what `filter()` would conclude
-            return Ok(Some(IncludeExclude::empty()));
-        }
         // just use 0 for the int_key, it's always ignored in the implementation here
         self.filter(key, 0, state.include(), state.exclude())
     }
 
-    /// Build the filter for the items of a sequence of length `len` (`None` if the length is unknown).
-    pub fn for_sequence<'py>(
+    pub fn index_filter<'py>(
         &self,
+        index: usize,
         state: &SerializationState<'py>,
         len: Option<usize>,
-    ) -> SequenceFilter<'_, 'py, Self> {
-        SequenceFilter::new(self, state, len)
+    ) -> PyResult<NextFilters<'py>> {
+        let include = state.include().map(|v| map_negative_indices(v, len)).transpose()?;
+        let exclude = state.exclude().map(|v| map_negative_indices(v, len)).transpose()?;
+        self.filter(index, index, include.as_ref(), exclude.as_ref())
     }
 }
 

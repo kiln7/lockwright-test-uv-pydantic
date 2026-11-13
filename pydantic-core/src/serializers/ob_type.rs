@@ -9,7 +9,6 @@ use pyo3::{PyTypeInfo, intern};
 use strum::Display;
 use strum_macros::EnumString;
 
-use crate::common::frozendict::{as_frozendict, frozendict_type_raw};
 use crate::url::{PyMultiHostUrl, PyUrl};
 
 #[derive(Debug, Clone)]
@@ -22,13 +21,8 @@ pub struct ObTypeLookup {
     string: usize,
     list: usize,
     dict: usize,
-    // `frozendict` builtin, only available on Python 3.15+ (`0` on older versions)
-    frozendict: usize,
-    ordered_dict_object: Py<PyAny>,
-    counter_object: Py<PyAny>,
     // other numeric types
     decimal_object: Py<PyAny>,
-    fraction_object: Py<PyAny>,
     // other string types
     bytes: usize,
     bytearray: usize,
@@ -36,7 +30,6 @@ pub struct ObTypeLookup {
     tuple: usize,
     set: usize,
     frozenset: usize,
-    deque_object: Py<PyAny>,
     // datetime types
     datetime: usize,
     date: usize,
@@ -82,23 +75,13 @@ impl ObTypeLookup {
             float: PyFloat::type_object_raw(py) as usize,
             list: PyList::type_object_raw(py) as usize,
             dict: PyDict::type_object_raw(py) as usize,
-            frozendict: frozendict_type_raw(py),
-            ordered_dict_object: py
-                .import("collections")
-                .unwrap()
-                .getattr("OrderedDict")
-                .unwrap()
-                .unbind(),
-            counter_object: py.import("collections").unwrap().getattr("Counter").unwrap().unbind(),
             decimal_object: py.import("decimal").unwrap().getattr("Decimal").unwrap().unbind(),
-            fraction_object: py.import("fractions").unwrap().getattr("Fraction").unwrap().unbind(),
             string: PyString::type_object_raw(py) as usize,
             bytes: PyBytes::type_object_raw(py) as usize,
             bytearray: PyByteArray::type_object_raw(py) as usize,
             tuple: PyTuple::type_object_raw(py) as usize,
             set: PySet::type_object_raw(py) as usize,
             frozenset: PyFrozenSet::type_object_raw(py) as usize,
-            deque_object: py.import("collections").unwrap().getattr("deque").unwrap().unbind(),
             datetime: PyDateTime::type_object_raw(py) as usize,
             date: PyDate::type_object_raw(py) as usize,
             time: PyTime::type_object_raw(py) as usize,
@@ -164,16 +147,11 @@ impl ObTypeLookup {
             ObType::Str => self.string == ob_type,
             ObType::List => self.list == ob_type,
             ObType::Dict => self.dict == ob_type,
-            ObType::Frozendict => self.frozendict == ob_type,
-            ObType::OrderedDict => self.ordered_dict_object.as_ptr() as usize == ob_type,
-            ObType::Counter => self.counter_object.as_ptr() as usize == ob_type,
             ObType::Decimal => self.decimal_object.as_ptr() as usize == ob_type,
-            ObType::Fraction => self.fraction_object.as_ptr() as usize == ob_type,
             ObType::StrSubclass => self.string == ob_type && op_value.is_none(),
             ObType::Tuple => self.tuple == ob_type,
             ObType::Set => self.set == ob_type,
             ObType::Frozenset => self.frozenset == ob_type,
-            ObType::Deque => self.deque_object.as_ptr() as usize == ob_type,
             ObType::Bytes => self.bytes == ob_type,
             ObType::Datetime => self.datetime == ob_type,
             ObType::Date => self.date == ob_type,
@@ -249,16 +227,8 @@ impl ObTypeLookup {
             ObType::List
         } else if ob_type == self.dict {
             ObType::Dict
-        } else if ob_type == self.frozendict {
-            ObType::Frozendict
-        } else if ob_type == self.ordered_dict_object.as_ptr() as usize {
-            ObType::OrderedDict
-        } else if ob_type == self.counter_object.as_ptr() as usize {
-            ObType::Counter
         } else if ob_type == self.decimal_object.as_ptr() as usize {
             ObType::Decimal
-        } else if ob_type == self.fraction_object.as_ptr() as usize {
-            ObType::Fraction
         } else if ob_type == self.bytes {
             ObType::Bytes
         } else if ob_type == self.tuple {
@@ -267,8 +237,6 @@ impl ObTypeLookup {
             ObType::Set
         } else if ob_type == self.frozenset {
             ObType::Frozenset
-        } else if ob_type == self.deque_object.as_ptr() as usize {
-            ObType::Deque
         } else if ob_type == self.datetime {
             ObType::Datetime
         } else if ob_type == self.date {
@@ -347,16 +315,8 @@ impl ObTypeLookup {
             ObType::List
         } else if value.is_instance_of::<PyTuple>() {
             ObType::Tuple
-        } else if value.is_instance(self.ordered_dict_object.bind(py)).unwrap_or(false) {
-            // must come before the `dict` check, as `OrderedDict` is a `dict` subclass
-            ObType::OrderedDict
-        } else if value.is_instance(self.counter_object.bind(py)).unwrap_or(false) {
-            // must come before the `dict` check, as `Counter` is a `dict` subclass
-            ObType::Counter
         } else if value.is_instance_of::<PyDict>() {
             ObType::Dict
-        } else if as_frozendict(value).is_some() {
-            ObType::Frozendict
         } else if value.is_instance_of::<PyBool>() {
             ObType::Bool
         } else if value.is_instance_of::<PyFloat>() {
@@ -367,8 +327,6 @@ impl ObTypeLookup {
             ObType::Set
         } else if value.is_instance_of::<PyFrozenSet>() {
             ObType::Frozenset
-        } else if value.is_instance(self.deque_object.bind(py)).unwrap_or(false) {
-            ObType::Deque
         } else if value.is_instance_of::<PyDateTime>() {
             ObType::Datetime
         } else if value.is_instance_of::<PyDate>() {
@@ -383,8 +341,6 @@ impl ObTypeLookup {
             ObType::MultiHostUrl
         } else if value.is_instance(self.decimal_object.bind(py)).unwrap_or(false) {
             ObType::Decimal
-        } else if value.is_instance(self.fraction_object.bind(py)).unwrap_or(false) {
-            ObType::Fraction
         } else if value.is_instance(self.uuid_object.bind(py)).unwrap_or(false) {
             ObType::Uuid
         } else if value.is_instance(self.enum_object.bind(py)).unwrap_or(false) {
@@ -452,7 +408,6 @@ pub enum ObType {
     Float,
     FloatSubclass,
     Decimal,
-    Fraction,
     // string types
     Str,
     StrSubclass,
@@ -463,12 +418,8 @@ pub enum ObType {
     Tuple,
     Set,
     Frozenset,
-    Deque,
     // mapping types
     Dict,
-    Frozendict,
-    OrderedDict,
-    Counter,
     // datetime types
     Datetime,
     Date,

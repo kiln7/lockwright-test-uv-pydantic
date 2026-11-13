@@ -129,16 +129,15 @@ def test_annotation_config():
     assert Model(foobar='123').b == 123.0
 
 
-def test_pop_by_field_name(py_and_json):
+def test_pop_by_field_name():
     class Model(BaseModel):
         model_config = ConfigDict(extra='forbid', validate_by_name=True)
         last_updated_by: str | None = Field(None, alias='lastUpdatedBy')
 
-    adapter = py_and_json(Model)
-    assert adapter.validate_test({'lastUpdatedBy': 'foo'}).model_dump() == {'last_updated_by': 'foo'}
-    assert adapter.validate_test({'last_updated_by': 'foo'}).model_dump() == {'last_updated_by': 'foo'}
+    assert Model(lastUpdatedBy='foo').model_dump() == {'last_updated_by': 'foo'}
+    assert Model(last_updated_by='foo').model_dump() == {'last_updated_by': 'foo'}
     with pytest.raises(ValidationError) as exc_info:
-        adapter.validate_test({'lastUpdatedBy': 'foo', 'last_updated_by': 'bar'})
+        Model(lastUpdatedBy='foo', last_updated_by='bar')
     assert exc_info.value.errors(include_url=False) == [
         {
             'input': 'bar',
@@ -731,8 +730,7 @@ def test_alias_generator_with_computed_field(alias_generator) -> None:
     assert r.model_dump(by_alias=True) == {'WIDTH': 10, 'HEIGHT': 20, 'AREA': 200}
 
 
-@pytest.mark.parametrize('return_value', [1, 0, False, []])
-def test_alias_generator_with_invalid_callables(return_value) -> None:
+def test_alias_generator_with_invalid_callables() -> None:
     for alias_kind in ('validation_alias', 'serialization_alias', 'alias'):
         with pytest.raises(
             TypeError, match=f'Invalid `{alias_kind}` type. `{alias_kind}` generator must produce one of'
@@ -741,7 +739,7 @@ def test_alias_generator_with_invalid_callables(return_value) -> None:
             class Foo(BaseModel):
                 a: str
 
-                model_config = ConfigDict(alias_generator=AliasGenerator(**{alias_kind: lambda x: return_value}))
+                model_config = ConfigDict(alias_generator=AliasGenerator(**{alias_kind: lambda x: 1}))
 
 
 def test_all_alias_kinds_specified() -> None:

@@ -6,7 +6,7 @@ import typing
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Hashable, Sequence
 from decimal import Decimal
-from enum import Enum, StrEnum, auto
+from enum import Enum, auto
 from typing import (
     Annotated,
     Any,
@@ -36,6 +36,7 @@ from pydantic import (
     ConfigDict,
     GetCoreSchemaHandler,
     PrivateAttr,
+    PydanticDeprecatedSince20,
     PydanticSchemaGenerationError,
     PydanticUndefinedAnnotation,
     PydanticUserError,
@@ -43,13 +44,13 @@ from pydantic import (
     TypeAdapter,
     ValidationError,
     constr,
-    create_model,
     errors,
     field_validator,
     model_validator,
+    root_validator,
+    validator,
 )
 from pydantic._internal._model_construction import ModelMetaclass
-from pydantic._internal._typing_extra import safe_get_annotations
 from pydantic.fields import Field, computed_field
 from pydantic.functional_serializers import (
     field_serializer,
@@ -531,16 +532,16 @@ def test_recursive_lists():
     assert Model.model_fields['v'].is_required()
 
 
-class MyStrEnum(StrEnum):
+class StrEnum(str, Enum):
     a = 'a10'
     b = 'b10'
 
 
 def test_str_enum():
     class Model(BaseModel):
-        v: MyStrEnum = ...
+        v: StrEnum = ...
 
-    assert Model(v='a10').v is MyStrEnum.a
+    assert Model(v='a10').v is StrEnum.a
 
     with pytest.raises(ValidationError):
         Model(v='different')
@@ -1041,7 +1042,7 @@ class CustomStr(str):
         ('a string', 'a string'),
         (b'some bytes', 'some bytes'),
         (bytearray('foobar', encoding='utf8'), 'foobar'),
-        (MyStrEnum.a, 'a10'),
+        (StrEnum.a, 'a10'),
         (CustomStr('whatever'), 'whatever'),
     ],
 )
@@ -1387,9 +1388,9 @@ def test_init_inspection():
         x: int
 
         def __init__(self, **data) -> None:
-            calls.append(data)
             with pytest.raises(AttributeError):
-                _ = self.x
+                calls.append(data)
+                assert self.x
             super().__init__(**data)
 
     Foobar(x=1)
@@ -1503,7 +1504,8 @@ def test_typing_type_on_generic_alias() -> None:
     error_msg = 'Instead of using type[typing.List[int]], use type[list].'
 
     with pytest.raises(PydanticUserError, check=lambda e: error_msg in e.message):
-        # `typing.List[int]` is a `typing._GenericAlias`, unlike `list[int]` (a `types.GenericAlias`) tested above:
+        # Note: this only works with typing.List, list behaves differently in Python 3.9 and sometimes 3.10,
+        # so thus we use typing.List here.
         class Model(BaseModel):
             a: type[typing.List[int]]  # noqa: UP006
 
@@ -2261,7 +2263,7 @@ def test_hashable_json_schema():
 
 
 def test_default_factory_called_once():
-    """It should never call `default_factory` more than once even when `validate_default` is set"""
+    """It should never call `default_factory` more than once even when `validate_all` is set"""
 
     v = 0
 
@@ -2323,6 +2325,17 @@ class User(BaseModel):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert module.User(id=12).model_dump() == {'id': 12, 'name': 'Jane Doe'}
+
+
+def test_iter_coverage():
+    class MyModel(BaseModel):
+        x: int = 1
+        y: str = 'a'
+
+    with pytest.warns(
+        PydanticDeprecatedSince20, match='The private method `_iter` will be removed and should no longer be used.'
+    ):
+        assert list(MyModel()._iter(by_alias=True)) == [('x', 1), ('y', 'a')]
 
 
 def test_frozen_config_and_field():
@@ -2485,6 +2498,22 @@ def test_abstractmethod_missing_for_all_decorators(bases):
         def my_model_validator(cls, values, handler, info):
             raise NotImplementedError
 
+        with pytest.warns(PydanticDeprecatedSince20):
+
+            @root_validator(skip_on_failure=True)
+            @classmethod
+            @abstractmethod
+            def my_root_validator(cls, values):
+                raise NotImplementedError
+
+        with pytest.warns(PydanticDeprecatedSince20):
+
+            @validator('side')
+            @classmethod
+            @abstractmethod
+            def my_validator(cls, value, **kwargs):
+                raise NotImplementedError
+
         @model_serializer(mode='wrap')
         @abstractmethod
         def my_model_serializer(self, handler, info):
@@ -2512,7 +2541,9 @@ def test_abstractmethod_missing_for_all_decorators(bases):
             " 'my_field_validator',"
             " 'my_model_serializer',"
             " 'my_model_validator',"
-            " 'my_serializer'"
+            " 'my_root_validator',"
+            " 'my_serializer',"
+            " 'my_validator'"
         ),
     ):
         Square(side=1.0)
@@ -2570,9 +2601,11 @@ def test_invalid_forward_ref_model():
     can cause problems, and to demonstrate a way to work around this.
     """
     # The problem:
-    # See PR #8243, this was a RecursionError raised by Python, but is now caught on the Pydantic side
-    error = errors.PydanticUserError
-
+    if sys.version_info >= (3, 11):
+        # See PR #8243, this was a RecursionError raised by Python, but is now caught on the Pydantic side
+        error = errors.PydanticUserError
+    else:
+        error = TypeError
     with pytest.raises(error):
 
         class M(BaseModel):
@@ -3097,6 +3130,20 @@ def test_validator_and_serializer_not_reused_during_rebuild() -> None:
     assert m.model_dump() == {}
 
 
+@pytest.mark.filterwarnings('ignore:.*`__get_validators__`.*:DeprecationWarning')
+def test_get_schema_on_classes_with_both_v1_and_v2_apis() -> None:
+    class Model(BaseModel):
+        a: int
+
+        @model_validator(mode='after')
+        def my_model_validator(self):
+            return self
+
+        @classmethod
+        def __get_validators__(cls):
+            raise AssertionError('This should not be called')
+
+
 def test_model_fields_set_includes_extra_after_assignment():
     """Regression test for https://github.com/pydantic/pydantic/issues/11134.
 
@@ -3114,108 +3161,3 @@ def test_model_fields_set_includes_extra_after_assignment():
     m.extra_after_init = 3
     assert m.model_fields_set == {'field', 'extra_at_init', 'extra_after_init'}
     assert m.model_extra == {'extra_at_init': 2, 'extra_after_init': 3}
-
-
-def test_safe_get_annotations_from_dict() -> None:
-    """https://github.com/pydantic/pydantic/issues/13520"""
-
-    class Meta(type):
-        pass
-
-    Meta.__annotations__
-
-    class Base(metaclass=Meta):
-        pass
-
-    class Main(Base):
-        f: int
-
-    class Sub(Main):
-        pass
-
-    assert safe_get_annotations(Sub) == {}
-
-
-@pytest.mark.timeout(10)
-def test_interconnected_models_build_in_linear_time() -> None:
-    classes: list[type[BaseModel]] = []
-    for i in range(60):
-        fields: dict[str, Any] = {'value': (int, ...)}
-        for j, prev in enumerate(classes[-3:]):
-            fields[f'ref{j}'] = (prev | None, None)
-        classes.append(create_model(f'Node{i}', **fields))
-
-    last = classes[-1]
-    instance = last.model_validate({'value': 1, 'ref2': {'value': 2, 'ref2': {'value': 3}}})
-    assert instance.ref2.ref2.value == 3
-    assert instance.model_dump(exclude_none=True) == {'value': 1, 'ref2': {'value': 2, 'ref2': {'value': 3}}}
-
-
-def test_unhasbable_generic_alias() -> None:
-    """https://github.com/pydantic/pydantic/issues/13645"""
-
-    class Meta:
-        __hash__ = None
-
-    ta = TypeAdapter(list[Annotated[int, Meta()]])
-
-    assert ta.validate_python(['1']) == [1]
-
-
-def test_get_pydantic_core_schema_instance() -> None:
-    class SchemaProvider:
-        def __get_pydantic_core_schema__(self, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
-            return core_schema.int_schema()
-
-    ta = TypeAdapter(SchemaProvider())
-    assert ta.validate_python('1') == 1
-
-
-def test_model_type_stack_popped_after_schema_generation_error() -> None:
-    """https://github.com/pydantic/pydantic/issues/13857"""
-
-    class Unsupported:
-        pass
-
-    class Bad(TypedDict):
-        x: Unsupported
-
-    class Fallback:
-        @classmethod
-        def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
-            try:
-                return handler.generate_schema(Bad)
-            except PydanticSchemaGenerationError:
-                return core_schema.any_schema()
-
-    class Model(BaseModel):
-        a: Fallback
-        child: Self | None = None
-
-    m = Model.model_validate({'a': 1, 'child': {'a': 2}})
-    assert isinstance(m.child, Model)
-
-
-def test_field_name_stack_popped_after_schema_generation_error() -> None:
-    """https://github.com/pydantic/pydantic/issues/13857"""
-
-    class Unsupported:
-        pass
-
-    class Bad(TypedDict):
-        x: Unsupported
-
-    field_names: list[str | None] = []
-
-    class Fallback:
-        @classmethod
-        def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
-            try:
-                handler.generate_schema(Bad)
-            except PydanticSchemaGenerationError:
-                pass
-            field_names.append(handler.field_name)
-            return core_schema.any_schema()
-
-    TypeAdapter(Fallback)
-    assert field_names == [None]

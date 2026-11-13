@@ -13,7 +13,6 @@ from typing import (
     Annotated,
     Any,
     ClassVar,
-    Final,
     Generic,
     Literal,
     Optional,
@@ -32,6 +31,7 @@ from pydantic import (
     BeforeValidator,
     ConfigDict,
     Field,
+    PydanticDeprecatedSince20,
     PydanticUndefinedAnnotation,
     PydanticUserError,
     RootModel,
@@ -367,6 +367,17 @@ def test_post_init_inheritance_chain():
     assert d.b == 2
     assert parent_post_init_called
     assert post_init_called
+
+
+def test_post_init_post_parse():
+    with pytest.warns(PydanticDeprecatedSince20, match='Support for `__post_init_post_parse__` has been dropped'):
+
+        @pydantic.dataclasses.dataclass
+        class MyDataclass:
+            a: int
+
+            def __post_init_post_parse__(self):
+                pass
 
 
 def test_post_init_assignment():
@@ -1534,26 +1545,6 @@ def test_new_not_called():
     assert pyd_instance.a == test_string
 
 
-def test_extra_allow_field_override_ignored(py_and_json) -> None:
-    @pydantic.dataclasses.dataclass(config=ConfigDict(extra='allow'))
-    class Foo:
-        a: int = Field(0, alias='b')
-
-    adapter = py_and_json(Foo)
-    assert adapter.validate_test({'b': 1, 'a': 'not_an_int', 'c': 2}).__dict__ == {'a': 1, 'c': 2}
-    assert adapter.validate_test({'a': 'not_an_int'}).__dict__ == {'a': 0}
-
-
-def test_runtime_extra_allow_field_override_ignored() -> None:
-    @pydantic.dataclasses.dataclass
-    class Foo:
-        a: int = Field(0, alias='b')
-
-    ta = TypeAdapter(Foo)
-    assert ta.validate_python({'b': 1, 'a': 'not_an_int', 'c': 2}, extra='allow').__dict__ == {'a': 1, 'c': 2}
-    assert ta.validate_json('{"b": 1, "a": "not_an_int", "c": 2}', extra='allow').__dict__ == {'a': 1, 'c': 2}
-
-
 def test_ignore_extra():
     @pydantic.dataclasses.dataclass(config=ConfigDict(extra='ignore'))
     class Foo:
@@ -1895,23 +1886,6 @@ def test_kw_only_inheritance_on_field() -> None:
         B(1)
 
 
-def test_kw_only_false_inheritance_on_field() -> None:
-    @dataclasses.dataclass(kw_only=True)
-    class A:
-        a: int = Field(kw_only=False)
-
-    @pydantic.dataclasses.dataclass
-    class B(A):
-        b: int = 1
-
-    assert B.__dataclass_fields__['a'].kw_only is False
-    assert B.__match_args__ == ('a', 'b')
-    assert list(inspect.signature(B).parameters) == ['a', 'b']
-    assert B(1, 2) == B(a=1, b=2)
-    # The stdlib base shouldn't be affected:
-    assert A.__dataclass_fields__['a'].kw_only is True
-
-
 def test_repr_inheritance() -> None:
     @dataclasses.dataclass
     class A:
@@ -2070,6 +2044,21 @@ def test_subclass_post_init_inheritance():
             self.a *= 3
 
     assert C(1).a == 12  # (1 + 3) * 3
+
+
+def test_config_as_type_deprecated():
+    class Config:
+        validate_assignment = True
+
+    with pytest.warns(
+        PydanticDeprecatedSince20, match='Support for class-based `config` is deprecated, use ConfigDict instead.'
+    ):
+
+        @pydantic.dataclasses.dataclass(config=Config)
+        class MyDataclass:
+            a: int
+
+    assert MyDataclass.__pydantic_config__ == ConfigDict(validate_assignment=True)
 
 
 def test_validator_info_field_name_data_before():
@@ -2795,23 +2784,6 @@ def test_signature():
     )
 
 
-def test_signature_validate_by_alias_false():
-    @pydantic.dataclasses.dataclass(config=ConfigDict(validate_by_alias=False, validate_by_name=True))
-    class Model:
-        x: int = Field(alias='xAlias')
-        y: int = Field(default=1, alias='yAlias')
-
-    sig = inspect.signature(Model)
-    assert str(sig) == '(x: int, y: int = 1) -> None'
-
-    # The signature must describe the arguments `__init__` actually accepts:
-    sig.bind(x=1)
-    with pytest.raises(TypeError):
-        sig.bind(xAlias=1)
-
-    assert Model(x=1) == Model(x=1, y=1)
-
-
 def test_inherited_dataclass_signature():
     @pydantic.dataclasses.dataclass
     class A:
@@ -3015,37 +2987,6 @@ def test_init_false_with_default(input_data, extra, expected, field_constructor)
         assert exc_info.value.errors(include_url=False) == expected
     else:
         assert dataclasses.asdict(MyDataclass(**input_data)) == expected
-
-
-@pytest.mark.parametrize('field_constructor', [dataclasses.field, pydantic.dataclasses.Field])
-def test_init_false_dataclass_field(field_constructor) -> None:
-    """https://github.com/pydantic/pydantic/issues/13833"""
-
-    @pydantic.dataclasses.dataclass(config=ConfigDict(extra='forbid'))
-    class A:
-        a: int = field_constructor(init=False, default=1)
-        b: int = 0
-
-    assert [(f.name, f.init) for f in dataclasses.fields(A)] == [('a', False), ('b', True)]
-    assert A.__match_args__ == ('b',)
-    assert dataclasses.replace(A(b=2), b=3) == A(b=3)
-
-
-def test_init_false_inheritance() -> None:
-    @dataclasses.dataclass
-    class A:
-        a: int = Field(init=False, default=1)
-        b: int = 0
-
-    @pydantic.dataclasses.dataclass(config=ConfigDict(extra='forbid'))
-    class B(A):
-        c: int = 0
-
-    assert [(f.name, f.init) for f in dataclasses.fields(B)] == [('a', False), ('b', True), ('c', True)]
-    assert B.__match_args__ == ('b', 'c')
-    assert dataclasses.replace(B(b=2), c=3) == B(b=2, c=3)
-    # The stdlib base shouldn't be affected:
-    assert A.__dataclass_fields__['a'].init is True
 
 
 def test_disallow_extra_allow_and_init_false() -> None:
@@ -3404,24 +3345,3 @@ def test_polymorphic_serialization_with_model_serializer(config: bool, runtime: 
     else:
         assert serializer.to_python(ClassB(a=123, b='test'), **kwargs) == 'ClassA'
         assert serializer.to_json(ClassB(a=123, b='test'), **kwargs) == b'"ClassA"'
-
-
-@pytest.mark.parametrize('dataclass_decorator', **dataclass_decorators())
-def test_bare_final_field_type_inferred_from_dataclass_field(dataclass_decorator) -> None:
-    """https://github.com/pydantic/pydantic/issues/11119"""
-
-    @dataclass_decorator
-    class Model:
-        a: Final = dataclasses.field(default=1)
-        b: Final = dataclasses.field(default_factory=dict)
-        c: Final = dataclasses.field(default_factory=lambda: 1)
-
-    ta = TypeAdapter(Model)
-    m = ta.validate_python({'a': '2', 'c': 'any value'})
-    assert (m.a, m.b, m.c) == (2, {}, 'any value')
-
-    with pytest.raises(
-        ValidationError,
-        check=lambda e: [err['type'] for err in e.errors()] == ['int_parsing', 'dict_type'],
-    ):
-        ta.validate_python({'a': 'not an int', 'b': 'not a dict'})

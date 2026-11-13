@@ -2,16 +2,20 @@
 
 from __future__ import annotations as _annotations
 
+import warnings
 from collections.abc import Callable
 from re import Pattern
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar, Union, Unpack, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar, Union, cast, overload
 
-from typing_extensions import TypedDict
+from typing_extensions import TypedDict, Unpack, deprecated
 
+from ._migration import getattr_migration
 from .aliases import AliasGenerator
 from .errors import PydanticUserError
+from .warnings import PydanticDeprecatedSince211
 
 if TYPE_CHECKING:
+    from ._internal._generate_schema import GenerateSchema as _GenerateSchema
     from .fields import ComputedFieldInfo, FieldInfo
 
 __all__ = ('ConfigDict', 'with_config')
@@ -49,7 +53,7 @@ class ConfigDict(TypedDict, total=False):
     """Whether to strip leading and trailing whitespace for str types."""
 
     str_min_length: int
-    """The minimum length for str types. Defaults to `0`."""
+    """The minimum length for str types. Defaults to `None`."""
 
     str_max_length: int | None
     """The maximum length for str types. Defaults to `None`."""
@@ -175,6 +179,9 @@ class ConfigDict(TypedDict, total=False):
     Whether models are faux-immutable, i.e. whether `__setattr__` is allowed, and also generates
     a `__hash__()` method for the model. This makes instances of the model potentially hashable if all the
     attributes are hashable. Defaults to `False`.
+
+    Note:
+        On V1, the inverse of this setting was called `allow_mutation`, and was `True` by default.
     """
 
     populate_by_name: bool
@@ -446,8 +453,8 @@ class ConfigDict(TypedDict, total=False):
     A `dict` of custom JSON encoders for specific types. Defaults to `None`.
 
     /// version-deprecated | v2
-    This configuration option is deprecated. Use [custom serializers](../concepts/serialization.md#custom-serializers)
-    instead.
+    This configuration option is a carryover from v1. We originally planned to remove it in v2 but didn't have a 1:1 replacement
+    so we are keeping it for now. It is still deprecated and will likely be removed in the future.
     ///
     """
 
@@ -588,7 +595,6 @@ class ConfigDict(TypedDict, total=False):
     /// version-added | v2.12
     This setting replaces [`ser_json_timedelta`][pydantic.config.ConfigDict.ser_json_timedelta],
     which will be deprecated in v3. `ser_json_temporal` adds more configurability for the other temporal types.
-    It takes precedence over `ser_json_timedelta`.
     ///
     """
 
@@ -804,6 +810,15 @@ class ConfigDict(TypedDict, total=False):
     plugin_settings: dict[str, object] | None
     """A `dict` of settings for plugins. Defaults to `None`."""
 
+    schema_generator: type[_GenerateSchema] | None
+    """
+    The `GenerateSchema` class to use during core schema generation.
+
+    /// version-deprecated | v2.10
+    The `GenerateSchema` class is private and highly subject to change.
+    ///
+    """
+
     json_schema_serialization_defaults_required: bool
     """
     Whether fields with default values should be marked as required in the serialization schema. Defaults to `False`.
@@ -984,6 +999,9 @@ class ConfigDict(TypedDict, total=False):
     validation_error_cause: bool
     """
     If `True`, Python exceptions that were part of a validation failure will be shown as an exception group as a cause. Can be useful for debugging. Defaults to `False`.
+
+    Note:
+        Python 3.10 and older don't support exception groups natively. <=3.10, backport must be installed: `pip install exceptiongroup`.
 
     Note:
         The structure of validation errors are likely to change in future Pydantic versions. Pydantic offers no guarantees about their structure. Should be used for visual traceback debugging only.
@@ -1177,9 +1195,9 @@ class ConfigDict(TypedDict, total=False):
 
         url: AnyUrl
 
-    m = Model(url='https://example.com')
+    m = Model(url='http://example.com')
     print(m.url)
-    #> https://example.com
+    #> http://example.com
     ```
 
     /// version-added | v2.12
@@ -1193,6 +1211,11 @@ class ConfigDict(TypedDict, total=False):
 
 
 _TypeT = TypeVar('_TypeT', bound=type)
+
+
+@overload
+@deprecated('Passing `config` as a keyword argument is deprecated. Pass `config` as a positional argument instead.')
+def with_config(*, config: ConfigDict) -> Callable[[_TypeT], _TypeT]: ...
 
 
 @overload
@@ -1229,6 +1252,10 @@ def with_config(config: ConfigDict | None = None, /, **kwargs: Any) -> Callable[
         #> {'x': 'abc'}
         ```
 
+    /// deprecated-removed | v2.11 v3
+    Passing `config` as a keyword argument.
+    ///
+
     /// version-changed | v2.11
     Keyword arguments can be provided directly instead of a config dictionary.
     ///
@@ -1236,7 +1263,15 @@ def with_config(config: ConfigDict | None = None, /, **kwargs: Any) -> Callable[
     if config is not None and kwargs:
         raise ValueError('Cannot specify both `config` and keyword arguments')
 
-    final_config = config if config is not None else cast(ConfigDict, kwargs)
+    if len(kwargs) == 1 and (kwargs_conf := kwargs.get('config')) is not None:
+        warnings.warn(
+            'Passing `config` as a keyword argument is deprecated. Pass `config` as a positional argument instead',
+            category=PydanticDeprecatedSince211,
+            stacklevel=2,
+        )
+        final_config = cast(ConfigDict, kwargs_conf)
+    else:
+        final_config = config if config is not None else cast(ConfigDict, kwargs)
 
     def inner(class_: _TypeT, /) -> _TypeT:
         # Ideally, we would check for `class_` to either be a `TypedDict` or a stdlib dataclass.
@@ -1253,3 +1288,6 @@ def with_config(config: ConfigDict | None = None, /, **kwargs: Any) -> Callable[
         return class_
 
     return inner
+
+
+__getattr__ = getattr_migration(__name__)
