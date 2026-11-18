@@ -1,5 +1,7 @@
 # The frozen baseline branch. Its own prefix keeps its branches apart from main's.
 version: 1
+# Upstream's test fixtures are not projects to update.
+exclude_directories: ["**/fixtures", "**/__fixtures__", "**/testdata"]
 updates:
   enabled: false
 pr:
