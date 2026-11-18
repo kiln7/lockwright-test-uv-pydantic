@@ -30,6 +30,7 @@ jobs:
     concurrency:
       group: security-${{ matrix.base }} # Two runs at once would race on the same branches.
     permissions:
+      actions: read # The artifacts of lockwright scan, for built images.
       contents: write
       pull-requests: write
     env:
