@@ -91,6 +91,27 @@ jobs:
           mise bin-paths >> "$GITHUB_PATH"
           mise ls --current
 
+      # pnpm's package store, kept between runs: each run adds what it
+      # fetched, which takes a full rebuild of five PRs from about 8 minutes
+      # to 5. pnpm checks every package against the lockfile's integrity
+      # hash, and only this workflow, on this repository's branches, writes
+      # the cache. Not the metadata cache: it changes what pnpm resolves.
+      - name: pnpm store path
+        id: pnpm-store
+        if: ${{ hashFiles('**/pnpm-lock.yaml') != '' }}
+        run: |
+          set -euo pipefail
+          store=$(pnpm store path)
+          echo "path=$store" >> "$GITHUB_OUTPUT"
+          echo "pnpm $(pnpm --version): store $store"
+      - name: Restore the pnpm store
+        if: ${{ steps.pnpm-store.outcome == 'success' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-store-${{ matrix.base }}-${{ github.run_id }}
+          restore-keys: pnpm-store-${{ matrix.base }}-
+
       - name: Run Lockwright
         id: lockwright
         env:
@@ -124,3 +145,10 @@ jobs:
       - name: Compare with osv-scanner
         if: ${{ !cancelled() }}
         run: python3 -I "$LOCKWRIGHT/testbed/check.py" compare --prs "$RUNNER_TEMP/prs.json"
+
+      - name: Save the pnpm store
+        if: ${{ !cancelled() && steps.pnpm-store.outcome == 'success' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-store-${{ matrix.base }}-${{ github.run_id }}
